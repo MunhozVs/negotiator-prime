@@ -1,0 +1,723 @@
+<style>
+  /* Base Reset for Bot */
+  #negotiator-prime-container {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    z-index: 2147483647; /* Set to absolute max z-index */
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+  }
+
+  /* Colors */
+  :root {
+    --np-primary: #1B2A4A;
+    --np-accent: #C9A84C;
+    --np-bg: #FFFFFF;
+    --np-text: #333333;
+    --np-msg-user: #e8f0fe;
+    --np-msg-bot: #f1f3f4;
+  }
+
+  /* --- States --- */
+  
+  /* Collapsed Icon */
+  .np-collapsed-icon {
+    background-color: var(--np-primary);
+    color: var(--np-accent);
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 30px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    cursor: pointer;
+    transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease, visibility 0.4s;
+    transform: scale(0);
+    opacity: 0;
+    visibility: hidden;
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    z-index: 2;
+  }
+
+  .np-collapsed-icon.np-show {
+    transform: scale(1);
+    opacity: 1;
+    visibility: visible;
+  }
+
+  .np-collapsed-icon.np-hide {
+    transform: scale(0);
+    opacity: 0;
+    visibility: hidden;
+  }
+
+  /* Teaser Card */
+  .np-teaser-card {
+    background-color: var(--np-bg);
+    border: 1px solid #ECECEC;
+    border-radius: 8px;
+    padding: 12px 16px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    margin-bottom: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease, visibility 0.4s;
+    transform: translateX(120%);
+    opacity: 0;
+    visibility: hidden;
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    white-space: nowrap;
+    z-index: 1;
+  }
+
+  .np-teaser-card.np-show {
+    transform: translateX(0);
+    opacity: 1;
+    visibility: visible;
+  }
+
+  .np-teaser-card.np-hide {
+    transform: translateX(120%);
+    opacity: 0;
+    visibility: hidden;
+  }
+
+  .np-teaser-icon {
+    background-color: var(--np-primary);
+    color: var(--np-accent);
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+  }
+
+  .np-teaser-text {
+    color: var(--np-text);
+    font-size: 14px;
+    font-weight: 500;
+    padding-right: 8px;
+  }
+
+  .np-teaser-close {
+    color: #999;
+    font-size: 20px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0 0 0 8px;
+    border-left: 1px solid #EEE;
+  }
+  
+  .np-teaser-close:hover {
+    color: #333;
+  }
+
+  /* Chatbot Panel */
+  .np-chat-panel {
+    width: 380px;
+    height: 600px;
+    max-height: calc(100vh - 40px);
+    background-color: var(--np-bg);
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease, visibility 0.4s;
+    transform: translateY(20px) scale(0.95);
+    opacity: 0;
+    visibility: hidden;
+    transform-origin: bottom right;
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    z-index: 3;
+  }
+
+  .np-chat-panel.np-show {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+    visibility: visible;
+  }
+
+  .np-chat-panel.np-hide {
+    transform: translateY(20px) scale(0.95);
+    opacity: 0;
+    visibility: hidden;
+  }
+
+  .np-chat-header {
+    background-color: var(--np-primary);
+    color: #FFF;
+    padding: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 2px solid var(--np-accent);
+  }
+
+  .np-chat-title {
+    font-weight: 600;
+    font-size: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .np-chat-close {
+    background: none;
+    border: none;
+    color: #FFF;
+    font-size: 24px;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0;
+  }
+
+  .np-chat-body {
+    flex: 1;
+    padding: 16px;
+    overflow-y: auto;
+    background-color: #F8F9FA;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  /* Chat Messages Styles */
+  .np-message {
+    max-width: 80%;
+    padding: 10px 14px;
+    border-radius: 18px;
+    font-size: 14px;
+    line-height: 1.4;
+    word-wrap: break-word;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  }
+
+  .np-message.user {
+    align-self: flex-end;
+    background-color: var(--np-msg-user);
+    color: var(--np-text);
+    border-bottom-right-radius: 4px;
+  }
+
+  .np-message.bot {
+    align-self: flex-start;
+    background-color: var(--np-msg-bot);
+    color: var(--np-text);
+    border-bottom-left-radius: 4px;
+    border: 1px solid #E5E5E5;
+  }
+
+  .np-message a {
+    color: #0066cc;
+    text-decoration: underline;
+    word-break: break-all;
+  }
+  
+  .np-message a:hover {
+    color: #004499;
+  }
+
+  .np-message.error {
+    background-color: #fee;
+    color: #c00;
+    border: 1px solid #fcc;
+  }
+
+  /* Typing Indicator - standalone, does NOT inherit from np-message */
+  .np-typing-bubble {
+    align-self: flex-start;
+    background-color: var(--np-msg-bot);
+    border: 1px solid #E5E5E5;
+    border-radius: 18px;
+    border-bottom-left-radius: 4px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 12px 16px;
+    width: fit-content;
+  }
+  .np-dot {
+    width: 8px;
+    height: 8px;
+    background-color: #888;
+    border-radius: 50%;
+    flex-shrink: 0;
+    animation: np-typing-bounce 1.2s infinite ease-in-out;
+  }
+  .np-dot:nth-child(1) { animation-delay: 0s; }
+  .np-dot:nth-child(2) { animation-delay: 0.2s; }
+  .np-dot:nth-child(3) { animation-delay: 0.4s; }
+
+  @keyframes np-typing-bounce {
+    0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+    30% { transform: translateY(-6px); opacity: 1; }
+  }
+
+  /* Product Mini-Card */
+  .np-product-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background-color: #fff;
+    border-bottom: 1px solid #ECECEC;
+    flex-shrink: 0;
+  }
+
+  .np-product-card-img {
+    width: 44px;
+    height: 44px;
+    border-radius: 6px;
+    object-fit: cover;
+    flex-shrink: 0;
+    border: 1px solid #ECECEC;
+  }
+
+  .np-product-card-info {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .np-product-card-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--np-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .np-product-card-price {
+    font-size: 12px;
+    color: var(--np-primary);
+    font-weight: 500;
+    margin-top: 2px;
+  }
+
+  .np-product-card-badge {
+    font-size: 10px;
+    background-color: var(--np-accent);
+    color: var(--np-primary);
+    padding: 2px 7px;
+    border-radius: 10px;
+    font-weight: 700;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .np-chat-footer {
+    padding: 16px;
+    background-color: var(--np-bg);
+    border-top: 1px solid #ECECEC;
+  }
+
+  .np-chat-input-wrapper {
+    display: flex;
+    gap: 8px;
+  }
+
+  .np-chat-input {
+    flex: 1;
+    padding: 10px 14px;
+    border: 1px solid #CCC;
+    border-radius: 20px;
+    outline: none;
+    font-size: 14px;
+  }
+
+  .np-chat-input:focus {
+    border-color: var(--np-primary);
+  }
+
+  .np-chat-send {
+    background-color: var(--np-primary);
+    color: var(--np-accent);
+    border: none;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    transition: background-color 0.2s;
+  }
+
+  .np-chat-send:hover {
+    background-color: #243b6a;
+  }
+
+  /* Responsive styling */
+  @media (max-width: 480px) {
+    #negotiator-prime-container {
+      bottom: 0;
+      right: 0;
+      width: 100%;
+    }
+    
+    .np-collapsed-icon {
+      bottom: 20px;
+      right: 20px;
+    }
+
+    .np-teaser-card {
+      bottom: 20px;
+      right: 20px;
+    }
+
+    .np-chat-panel {
+      width: 100%;
+      height: 100vh;
+      max-height: 100vh;
+      border-radius: 0;
+    }
+  }
+</style>
+
+<div id="negotiator-prime-container">
+  
+  <!-- Collapsed Icon -->
+  <div id="np-collapsed" class="np-collapsed-icon">
+    💎
+  </div>
+
+  <!-- Teaser Card -->
+  <div id="np-teaser" class="np-teaser-card">
+    <div class="np-teaser-icon">
+      💎
+    </div>
+    <div class="np-teaser-text" id="np-teaser-body">
+      Negotiate this price!
+    </div>
+    <button class="np-teaser-close" id="np-teaser-close">&times;</button>
+  </div>
+
+  <!-- Chatbot Panel -->
+  <div id="np-panel" class="np-chat-panel">
+    <div class="np-chat-header">
+      <div class="np-chat-title">
+        <span style="color: var(--np-accent);">💎</span> Negotiator Prime
+      </div>
+      <button id="np-close" class="np-chat-close">&times;</button>
+    </div>
+
+    {% if product %}
+    <div class="np-product-card">
+      {% if product.featured_image %}
+        <img
+          class="np-product-card-img"
+          src="{{ product.featured_image | img_url: 'small' }}"
+          alt="{{ product.title | escape }}"
+        />
+      {% endif %}
+      <div class="np-product-card-info">
+        <div class="np-product-card-title">{{ product.title }}</div>
+        <div class="np-product-card-price">{{ product.price | money }}</div>
+      </div>
+      <span class="np-product-card-badge">Negotiating</span>
+    </div>
+    {% endif %}
+
+    <div class="np-chat-body" id="np-chat-messages">
+      <div class="np-message bot" id="np-welcome-msg">
+        Hello! I saw you're interested in {{ product.title }}. Want to negotiate a better price? Make your offer below!
+      </div>
+    </div>
+    <div class="np-chat-footer">
+      <div class="np-chat-input-wrapper">
+        <input type="text" class="np-chat-input" id="np-input" placeholder="Make your offer..." autocomplete="off" />
+        <button class="np-chat-send" id="np-send">➤</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function() {
+    // Inject Shopify Globals
+    window.ShopifyBotConfig = {
+      product: null,
+      shop: "{{ shop.permanent_domain }}",
+      currency: "{{ cart.currency.iso_code }}",
+      moneyFormat: "{{ shop.money_format | strip_html | escape }}",
+      webhookUrl: "https://n8n-ydavid-u67684.vm.elestio.app/webhook/negotiator-prime"
+    };
+
+    {% if product %}
+      window.ShopifyBotConfig.product = {
+        id: {{ product.id | json }},
+        title: {{ product.title | json }},
+        price: {{ product.price | money_without_currency | json }},
+        variantId: {{ product.selected_or_first_available_variant.id | json }},
+        image: {{ product.featured_image | img_url: 'medium' | json }}
+      };
+
+      // Generate or retrieve Chat ID (persistent per product session)
+      try {
+        var storageKey = 'np_chat_id_' + window.ShopifyBotConfig.product.id;
+        var chatId = sessionStorage.getItem(storageKey);
+        if (!chatId) {
+          chatId = 'chat_' + Math.random().toString(36).substring(2, 11) + '_' + Date.now();
+          sessionStorage.setItem(storageKey, chatId);
+        }
+        window.ShopifyBotConfig.chatId = chatId;
+      } catch (e) {
+        console.warn("Negotiator Prime: sessionStorage access failed, using temporary ID.");
+        window.ShopifyBotConfig.chatId = 'chat_temp_' + Math.random().toString(36).substring(2, 11);
+      }
+    {% endif %}
+
+    console.log("Negotiator Prime Configured:", window.ShopifyBotConfig);
+
+    // DOM Elements
+    var collapsedIcon = document.getElementById('np-collapsed');
+    var teaser = document.getElementById('np-teaser');
+    var teaserCloseBtn = document.getElementById('np-teaser-close');
+    var panel = document.getElementById('np-panel');
+    var closeBtn = document.getElementById('np-close');
+    var chatBody = document.getElementById('np-chat-messages');
+    var chatInput = document.getElementById('np-input');
+    var sendBtn = document.getElementById('np-send');
+
+    // State Management
+    var currentState = 'hidden'; 
+    var isSending = false;
+
+    function setState(newState) {
+      if (currentState === newState) return;
+      currentState = newState;
+      
+      collapsedIcon.classList.remove('np-show', 'np-hide');
+      teaser.classList.remove('np-show', 'np-hide');
+      panel.classList.remove('np-show', 'np-hide');
+
+      switch(newState) {
+        case 'collapsed':
+          collapsedIcon.classList.add('np-show');
+          teaser.classList.add('np-hide');
+          panel.classList.add('np-hide');
+          break;
+        case 'teaser':
+          collapsedIcon.classList.add('np-hide');
+          teaser.classList.add('np-show');
+          panel.classList.add('np-hide');
+          break;
+        case 'open':
+          collapsedIcon.classList.add('np-hide');
+          teaser.classList.add('np-hide');
+          panel.classList.add('np-show');
+          // Foca no input ao abrir
+          setTimeout(function() { chatInput.focus(); }, 400);
+          break;
+      }
+    }
+
+    setTimeout(function() {
+      // Show teaser on load
+      setState('teaser');
+    }, 1000);
+
+    // Chat Functions
+    function appendMessage(text, sender) {
+      var msgDiv = document.createElement('div');
+      msgDiv.className = 'np-message ' + sender;
+      
+      if (sender === 'bot') {
+        // Detect URLs and convert to links
+        var urlRegex = /(https?:\/\/[^\s]+)/g;
+        var linkedText = text.replace(urlRegex, function(url) {
+          return '<a href="' + url + '" target="_blank" rel="noopener noreferrer">' + url + '</a>';
+        });
+        // Replace newlines with <br>
+        linkedText = linkedText.replace(/\n/g, '<br>');
+        msgDiv.innerHTML = linkedText;
+      } else {
+        msgDiv.textContent = text;
+      }
+      
+      chatBody.appendChild(msgDiv);
+      chatBody.scrollTop = chatBody.scrollHeight;
+    }
+
+    function showTyping() {
+      var typingDiv = document.createElement('div');
+      typingDiv.className = 'np-typing-bubble';
+      typingDiv.id = 'np-typing-indicator';
+      typingDiv.innerHTML = '<div class="np-dot"></div><div class="np-dot"></div><div class="np-dot"></div>';
+      chatBody.appendChild(typingDiv);
+      chatBody.scrollTop = chatBody.scrollHeight;
+    }
+
+    function removeTyping() {
+      var indicator = document.getElementById('np-typing-indicator');
+      if (indicator) {
+        indicator.parentNode.removeChild(indicator);
+      }
+    }
+
+    function handleSend() {
+      var message = chatInput.value.trim();
+      if (!message || isSending) return;
+
+      appendMessage(message, 'user');
+      chatInput.value = '';
+      isSending = true;
+      showTyping();
+
+      // Prepare payload with context
+      var payload = {
+        chatId: window.ShopifyBotConfig.chatId || ('chat_jit_' + Math.random().toString(36).substring(2, 11)),
+        message: message,
+        shop: window.ShopifyBotConfig.shop,
+        currency: window.ShopifyBotConfig.currency,
+        product: window.ShopifyBotConfig.product
+      };
+
+      console.log("Negotiator Prime Debug: Sending Payload ->", JSON.stringify(payload, null, 2));
+
+      // Send to N8N webhook
+      fetch(window.ShopifyBotConfig.webhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      })
+      .then(function(response) {
+        console.log("Negotiator Prime Debug: Response Status ->", response.status, response.statusText);
+        
+        if (!response.ok) {
+          // If not OK, still try to read the text to see the error message from server
+          return response.text().then(function(errText) {
+            console.error("Negotiator Prime Debug: Server Error Body ->", errText);
+            throw new Error('Erro na rede ' + response.status + ': ' + (errText || response.statusText));
+          });
+        }
+        
+        var contentType = response.headers.get("content-type");
+        if (contentType && contentType.indexOf("application/json") !== -1) {
+          return response.json();
+        } else {
+          return response.text();
+        }
+      })
+      .then(function(data) {
+        console.log("Negotiator Prime Debug: Raw Response Data ->", data);
+        console.log("Negotiator Prime Debug: Data Type ->", typeof data);
+        
+        removeTyping();
+        isSending = false;
+        
+        var respostaBot = "Ok, we received your message but the response format was unexpected.";
+        
+        if (!data || (typeof data === 'string' && data.trim() === "")) {
+          respostaBot = "Oops! We received an empty response from the server. Please check your automation settings.";
+        } else {
+          try {
+            // Se o N8N mandou a resposta como uma String de JSON inteira, precisamos decodificar isso primeiro.
+            if (typeof data === 'string') {
+               // Tenta converter a string pura em JSON
+               try {
+                  data = JSON.parse(data);
+               } catch(ex) {
+                  // ignorar se não der certo para cair no fallback string lá em baixo.
+               }
+            }
+
+            // Case 1: N8N Array [ { "output": "..." } ]
+            if (Array.isArray(data) && data.length > 0) {
+              var firstItem = data[0];
+              if (firstItem.output) {
+                var outputData = firstItem.output;
+                // Output might be a JSON string or an already parsed object
+                var outputObj = typeof outputData === 'string' ? JSON.parse(outputData) : outputData;
+                if (outputObj && outputObj.message) {
+                  respostaBot = outputObj.message;
+                } else if (typeof outputData === 'string') {
+                  respostaBot = outputData;
+                }
+              } else if (firstItem.message) {
+                respostaBot = firstItem.message;
+              }
+            } 
+            // Case 2: Simple Object { "reply": "..." } or { "message": "..." }
+            else if (typeof data === 'object') {
+              respostaBot = data.reply || data.message || data.output || respostaBot;
+            }
+            // Case 3: Raw String fallback
+            else if (typeof data === 'string') {
+              respostaBot = data;
+            }
+          } catch(e) {
+            console.error("Negotiator Prime Debug: Parsing Error ->", e);
+            respostaBot = "Error processing server response: " + e.message;
+          }
+        }
+
+        appendMessage(respostaBot, 'bot');
+      })
+      .catch(function(error) {
+        removeTyping();
+        isSending = false;
+        console.error("Negotiator Prime Debug: Fetch Error ->", error);
+        appendMessage("Connection error: " + error.message, 'error');
+      });
+    }
+
+    // Event Listeners (using onclick to bypass sandbox blocks)
+    if (teaser) teaser.onclick = function() { setState('open'); };
+    if (teaserCloseBtn) {
+      teaserCloseBtn.onclick = function(e) {
+        if(e) e.stopPropagation(); 
+        setState('collapsed');
+      };
+    }
+    if (collapsedIcon) collapsedIcon.onclick = function() { setState('open'); };
+    if (closeBtn) closeBtn.onclick = function() { setState('collapsed'); };
+    
+    // Chat Event Listeners
+    if (sendBtn) {
+      sendBtn.onclick = function() {
+        handleSend();
+      };
+    }
+    
+    if (chatInput) {
+      chatInput.onkeypress = function(e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          handleSend();
+        }
+      };
+    }
+  })();
+</script>
+
+{% schema %}
+{
+  "name": "Negotiator Prime",
+  "target": "body",
+  "settings": [
+    { "type": "color", "id": "main_color", "label": "Cor Primária", "default": "#1B2A4A" },
+    { "type": "color", "id": "accent_color", "label": "Cor de Destaque", "default": "#C9A84C" }
+  ]
+}
+{% endschema %}

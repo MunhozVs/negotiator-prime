@@ -1,0 +1,15 @@
+<div id="negotiator-prime">
+  </div>
+
+<script src="{{ 'bot-logic.js' | asset_url }}" defer></script>
+<link rel="stylesheet" href="{{ 'bot-style.css' | asset_url }}">
+
+{% schema %}
+{
+  "name": "Negotiator Prime",
+  "target": "body",
+  "settings": [
+    { "type": "color", "id": "main_color", "label": "Cor do Bot", "default": "#000000" }
+  ]
+}
+{% endschema %}
