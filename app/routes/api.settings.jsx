@@ -1,4 +1,3 @@
-import { json } from "react-router";
 import supabase from "../supabase.server";
 
 export const loader = async ({ request }) => {
@@ -6,7 +5,10 @@ export const loader = async ({ request }) => {
     const shop = url.searchParams.get("shop");
 
     if (!shop) {
-        return json({ error: "Missing shop parameter" }, { status: 400 });
+        return new Response(JSON.stringify({ error: "Missing shop parameter" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json" }
+        });
     }
 
     // 1. Get Shop UUID
@@ -17,7 +19,10 @@ export const loader = async ({ request }) => {
         .single();
 
     if (!shopRecord) {
-        return json({ error: "Shop not found" }, { status: 404 });
+        return new Response(JSON.stringify({ error: "Shop not found" }), {
+            status: 404,
+            headers: { "Content-Type": "application/json" }
+        });
     }
 
     // 2. Fetch Settings
@@ -35,20 +40,24 @@ export const loader = async ({ request }) => {
         .eq('scope_type', 'global')
         .single();
 
-    return json({
+    return new Response(JSON.stringify({
         settings: settings || {},
         global_rules: globalRule || {
             min_discount_percent: 5,
             max_discount_percent: 20,
             counter_strategy: 'split_difference'
         }
-    }, {
+    }), {
         headers: {
+            "Content-Type": "application/json",
             "Access-Control-Allow-Origin": "*",
         }
     });
 };
 
 export const action = () => {
-    return json({ error: "Method not allowed" }, { status: 405 });
+    return new Response(JSON.stringify({ error: "Method not allowed" }), {
+        status: 405,
+        headers: { "Content-Type": "application/json" }
+    });
 };

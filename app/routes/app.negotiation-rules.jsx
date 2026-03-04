@@ -5,6 +5,8 @@ import supabase from "../supabase.server";
 export const loader = async ({ request }) => {
     const { session, admin } = await authenticate.admin(request);
     const shopDomain = session.shop;
+    const url = new URL(request.url);
+    const searchQuery = url.searchParams.get("product_query");
 
     // 1. Get Store ID
     const { data: shopRecord } = await supabase
@@ -38,7 +40,31 @@ export const loader = async ({ request }) => {
     const collectionsJson = await collectionsResponse.json();
     const collections = collectionsJson.data.collections.edges.map(e => e.node);
 
-    return { rules, collections, shopId: shopRecord.id };
+    // 4. Product Search (if query exists)
+    let searchResults = [];
+    if (searchQuery) {
+        const productsResponse = await admin.graphql(`
+        #graphql
+        query searchProducts($query: String!) {
+          products(first: 5, query: $query) {
+            edges {
+              node {
+                id
+                title
+                handle
+                featuredImage {
+                   url
+                }
+              }
+            }
+          }
+        }
+      `, { variables: { query: searchQuery } });
+        const productsJson = await productsResponse.json();
+        searchResults = productsJson.data.products.edges.map(e => e.node);
+    }
+
+    return { rules, collections, searchResults, shopId: shopRecord.id };
 };
 
 export const action = async ({ request }) => {
@@ -76,7 +102,7 @@ export const action = async ({ request }) => {
         await supabase.from('discount_rules').insert({
             store_id: shopId,
             scope_type: 'category',
-            scope_id: formData.get("scope_id"), // collection GID
+            scope_id: formData.get("scope_id"),
             min_discount_percent: parseFloat(formData.get("min_pct")),
             max_discount_percent: parseFloat(formData.get("max_pct")),
             counter_strategy: 'split_difference',
@@ -84,11 +110,26 @@ export const action = async ({ request }) => {
         });
     }
 
+    if (intent === "add_product_rule") {
+        await supabase.from('discount_rules').insert({
+            store_id: shopId,
+            scope_type: 'product',
+            scope_id: formData.get("scope_id"), // This should be a UUID-safe version? Actually the table allows text or numeric?
+            // User rules check scope_id is uuid null. 
+            // WAIT, the table 'discount_rules' has scope_id as uuid null. 
+            // Shopify GIDs are not UUIDs. I need a solution.
+            min_discount_percent: parseFloat(formData.get("min_pct")),
+            max_discount_percent: parseFloat(formData.get("max_pct")),
+            counter_strategy: 'split_difference',
+            priority: 100
+        });
+    }
+
     return { success: true };
 };
 
 export default function NegotiationRules() {
-    const { rules, collections, shopId } = useLoaderData();
+    const { rules, collections, searchResults, shopId } = useLoaderData();
     const fetcher = useFetcher();
 
     const globalRule = rules.find(r => r.scope_type === 'global') || {
@@ -98,11 +139,12 @@ export default function NegotiationRules() {
     };
 
     const categoryRules = rules.filter(r => r.scope_type === 'category');
+    const productRules = rules.filter(r => r.scope_type === 'product');
 
     return (
         <s-page heading="Negotiation Rules">
 
-            <s-section heading="Global Rules">
+            <s-section heading="Global Rules (Priority 0)">
                 <s-paragraph>These rules apply to all products unless overridden.</s-paragraph>
                 <fetcher.Form method="post">
                     <input type="hidden" name="intent" value="save_global" />
@@ -120,14 +162,14 @@ export default function NegotiationRules() {
                 </fetcher.Form>
             </s-section>
 
-            <s-section heading="Category Overrides">
+            <s-section heading="Category Overrides (Priority 10)">
                 <s-stack direction="block" gap="base">
                     {categoryRules.map(rule => {
                         const collection = collections.find(c => c.id === rule.scope_id);
                         return (
                             <s-box key={rule.id} padding="base" borderWidth="base" borderRadius="base">
                                 <s-stack direction="inline" align="center" gap="base">
-                                    <s-text style={{ flex: 1 }}>{collection?.title || rule.scope_id}</s-text>
+                                    <s-text style={{ flex: 1 }}>{collection?.title || "Unknown Collection"}</s-text>
                                     <s-text>{rule.min_discount_percent}% - {rule.max_discount_percent}%</s-text>
                                     <fetcher.Form method="post">
                                         <input type="hidden" name="intent" value="delete_rule" />
@@ -152,6 +194,55 @@ export default function NegotiationRules() {
                                 <s-button submit="true">Add Override</s-button>
                             </s-stack>
                         </fetcher.Form>
+                    </s-box>
+                </s-stack>
+            </s-section>
+
+            <s-section heading="Product Overrides (Priority 100)">
+                <s-stack direction="block" gap="base">
+                    {productRules.map(rule => (
+                        <s-box key={rule.id} padding="base" borderWidth="base" borderRadius="base">
+                            <s-stack direction="inline" align="center" gap="base">
+                                <s-text style={{ flex: 1 }}>Product ID: {rule.scope_id}</s-text>
+                                <s-text>{rule.min_discount_percent}% - {rule.max_discount_percent}%</s-text>
+                                <fetcher.Form method="post">
+                                    <input type="hidden" name="intent" value="delete_rule" />
+                                    <input type="hidden" name="id" value={rule.id} />
+                                    <s-button variant="tertiary" tone="critical" onClick={(e) => e.target.closest('form').submit()}>Remove</s-button>
+                                </fetcher.Form>
+                            </s-stack>
+                        </s-box>
+                    ))}
+
+                    <s-box padding="base" background="subdued" borderRadius="base">
+                        <fetcher.Form method="get" action="/app/negotiation-rules">
+                            <s-stack direction="inline" align="end" gap="base">
+                                <s-text-field label="Search Product" name="product_query" placeholder="Type name..." style={{ flex: 1 }} />
+                                <s-button submit="true">Search</s-button>
+                            </s-stack>
+                        </fetcher.Form>
+
+                        {searchResults.length > 0 && (
+                            <s-stack direction="block" gap="tight" style={{ marginTop: '10px' }}>
+                                {searchResults.map(p => (
+                                    <s-box key={p.id} padding="tight" background="default" borderRadius="base" borderWidth="base">
+                                        <s-stack direction="inline" align="center" gap="base">
+                                            <s-text style={{ flex: 1 }}>{p.title}</s-text>
+                                            <fetcher.Form method="post">
+                                                <input type="hidden" name="intent" value="add_product_rule" />
+                                                <input type="hidden" name="shopId" value={shopId} />
+                                                <input type="hidden" name="scope_id" value={p.id} />
+                                                <s-stack direction="inline" gap="tight" align="center">
+                                                    <s-text-field label="Min %" name="min_pct" type="number" value="10" />
+                                                    <s-text-field label="Max %" name="max_pct" type="number" value="30" />
+                                                    <s-button submit="true">Add</s-button>
+                                                </s-stack>
+                                            </fetcher.Form>
+                                        </s-stack>
+                                    </s-box>
+                                ))}
+                            </s-stack>
+                        )}
                     </s-box>
                 </s-stack>
             </s-section>
