@@ -490,7 +490,9 @@
     var collapsedIcon = document.getElementById('np-collapsed');
     var teaser = document.getElementById('np-teaser');
     var teaserCloseBtn = document.getElementById('np-teaser-close');
+    var teaserHeadline = document.getElementById('np-teaser-body');
     var panel = document.getElementById('np-panel');
+    var chatTitle = document.querySelector('.np-chat-title');
     var closeBtn = document.getElementById('np-close');
     var chatBody = document.getElementById('np-chat-messages');
     var chatInput = document.getElementById('np-input');
@@ -499,9 +501,62 @@
     // State Management
     var currentState = 'hidden'; 
     var isSending = false;
+    var settingsLoaded = false;
+    var triggerDelay = 1000; // Default 1s
+
+    function applyDynamicSettings(data) {
+      if (!data || !data.settings) return;
+      var s = data.settings;
+      
+      // 1. Colors
+      var root = document.documentElement;
+      if (s.header_color) root.style.setProperty('--np-primary', s.header_color);
+      if (s.button_color) root.style.setProperty('--np-accent', s.button_color);
+
+      // 2. Text Content
+      if (s.chatbot_name) chatTitle.innerHTML = '<span style="color: var(--np-accent);">💎</span> ' + s.chatbot_name;
+      if (s.teaser_headline) teaserHeadline.textContent = s.teaser_headline;
+      if (s.cta_label) chatInput.placeholder = s.cta_label;
+
+      // 3. Behavior
+      if (s.trigger_delay) triggerDelay = s.trigger_delay * 1000;
+      
+      // 4. Mobile Toggle
+      var isMobile = window.innerWidth <= 480;
+      if (isMobile && s.enable_mobile === false) {
+        currentState = 'disabled';
+        return;
+      }
+
+      settingsLoaded = true;
+      
+      // Start flow after delay
+      setTimeout(function() {
+        if (currentState !== 'disabled') setState('teaser');
+      }, triggerDelay);
+    }
+
+    // Fetch Settings
+    var appUrl = "{{ block.settings.app_url }}";
+    if (appUrl) {
+      fetch(appUrl + "/api/settings?shop=" + window.ShopifyBotConfig.shop)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+           console.log("Negotiator Prime: Settings loaded", data);
+           applyDynamicSettings(data);
+        })
+        .catch(function(e) { 
+          console.warn("Negotiator Prime: Could not load dynamic settings", e);
+          // Fallback to default teaser show
+          setTimeout(function() { setState('teaser'); }, 1000);
+        });
+    } else {
+      // No app URL configured, use defaults
+      setTimeout(function() { setState('teaser'); }, 1000);
+    }
 
     function setState(newState) {
-      if (currentState === newState) return;
+      if (currentState === newState || currentState === 'disabled') return;
       currentState = newState;
       
       collapsedIcon.classList.remove('np-show', 'np-hide');
@@ -716,8 +771,9 @@
   "name": "Negotiator Prime",
   "target": "body",
   "settings": [
-    { "type": "color", "id": "main_color", "label": "Cor Primária", "default": "#1B2A4A" },
-    { "type": "color", "id": "accent_color", "label": "Cor de Destaque", "default": "#C9A84C" }
+    { "type": "text", "id": "app_url", "label": "App Base URL", "default": "https://primestyle.com/app" },
+    { "type": "color", "id": "main_color", "label": "Cor Primária (Fallback)", "default": "#1B2A4A" },
+    { "type": "color", "id": "accent_color", "label": "Cor de Destaque (Fallback)", "default": "#C9A84C" }
   ]
 }
 {% endschema %}
