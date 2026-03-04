@@ -1,4 +1,21 @@
+import { useState, useCallback, useEffect } from "react";
 import { useLoaderData, useFetcher } from "react-router";
+import {
+  Page,
+  Layout,
+  Card,
+  BlockStack,
+  TextField,
+  InlineStack,
+  Checkbox,
+  Button,
+  InlineError,
+  Box,
+  Text,
+  Divider,
+  Toast,
+  Frame,
+} from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import supabase from "../supabase.server";
 
@@ -6,7 +23,7 @@ export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
   const shopDomain = session.shop;
 
-  // 1. Ensure shop exists in 'shops' table and get its UUID
+  // 1. Ensure shop exists
   let { data: shopRecord, error: shopError } = await supabase
     .from('shops')
     .select('id')
@@ -14,7 +31,6 @@ export const loader = async ({ request }) => {
     .single();
 
   if (!shopRecord) {
-    // Create shop if not exists
     const { data: newShop, error: createError } = await supabase
       .from('shops')
       .insert([{ shop_domain: shopDomain }])
@@ -25,15 +41,14 @@ export const loader = async ({ request }) => {
     shopRecord = newShop;
   }
 
-  // 2. Fetch or initialize settings
+  // 2. Fetch settings
   let { data: settings, error: settingsError } = await supabase
     .from('shop_settings')
     .select('*')
     .eq('store_id', shopRecord.id)
     .single();
 
-  if (!settings && !settingsError) {
-    // Return defaults if none found
+  if (!settings) {
     settings = {
       chatbot_name: 'Negotiator Prime',
       bot_avatar_url: '',
@@ -85,102 +100,143 @@ export default function Index() {
   const fetcher = useFetcher();
   const isSaving = fetcher.state === "submitting";
 
+  const [formState, setFormState] = useState(settings);
+  const [showToast, setShowToast] = useState(false);
+
+  const toggleToast = useCallback(() => setShowToast((active) => !active), []);
+
+  useEffect(() => {
+    if (fetcher.data?.success && !isSaving) {
+      setShowToast(true);
+    }
+  }, [fetcher.data, isSaving]);
+
+  const handleFieldChange = (field) => (value) => {
+    setFormState((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleCheckboxChange = (field) => (value) => {
+    setFormState((prev) => ({ ...prev, [field]: value }));
+  };
+
   return (
-    <s-page heading="General Settings">
-      <s-button
-        slot="primary-action"
-        loading={isSaving ? "true" : undefined}
-        onClick={() => document.getElementById("settings-form").requestSubmit()}
+    <Frame>
+      <Page
+        title="General Settings"
+        primaryAction={{
+          content: "Save Settings",
+          onAction: () => fetcher.submit(
+            { ...formState, shopId, enable_mobile: formState.enable_mobile.toString() },
+            { method: "post" }
+          ),
+          loading: isSaving,
+        }}
       >
-        Save Settings
-      </s-button>
+        <Layout>
+          <Layout.Section>
+            <BlockStack gap="500">
+              <Card>
+                <BlockStack gap="400">
+                  <Text variant="headingMd" as="h2">Basic Identity</Text>
+                  <TextField
+                    label="Chatbot Name / Title"
+                    value={formState.chatbot_name}
+                    onChange={handleFieldChange("chatbot_name")}
+                    helpText="Display name in the chat header"
+                    autoComplete="off"
+                  />
+                  <TextField
+                    label="Bot Avatar URL"
+                    value={formState.bot_avatar_url}
+                    onChange={handleFieldChange("bot_avatar_url")}
+                    helpText="Public URL for the custom avatar image"
+                    autoComplete="off"
+                  />
+                </BlockStack>
+              </Card>
 
-      <fetcher.Form method="post" id="settings-form">
-        <input type="hidden" name="shopId" value={shopId} />
+              <Card>
+                <BlockStack gap="400">
+                  <Text variant="headingMd" as="h2">Branding & Colors</Text>
+                  <InlineStack gap="400">
+                    <div style={{ flex: 1 }}>
+                      <TextField
+                        label="Header Color"
+                        type="color"
+                        value={formState.header_color}
+                        onChange={handleFieldChange("header_color")}
+                        autoComplete="off"
+                      />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <TextField
+                        label="Button Color"
+                        type="color"
+                        value={formState.button_color}
+                        onChange={handleFieldChange("button_color")}
+                        autoComplete="off"
+                      />
+                    </div>
+                  </InlineStack>
+                </BlockStack>
+              </Card>
 
-        <s-section heading="Basic Identity">
-          <s-stack direction="block" gap="base">
-            <s-text-field
-              label="Chatbot Name / Title"
-              name="chatbot_name"
-              value={settings.chatbot_name}
-              help-text="Display name in the chat header"
-            />
-            <s-text-field
-              label="Bot Avatar URL"
-              name="bot_avatar_url"
-              value={settings.bot_avatar_url}
-              help-text="Public URL for the custom avatar image"
-            />
-          </s-stack>
-        </s-section>
+              <Card>
+                <BlockStack gap="400">
+                  <Text variant="headingMd" as="h2">Behavior & Triggers</Text>
+                  <TextField
+                    label="Trigger Delay (seconds)"
+                    type="number"
+                    value={formState.trigger_delay.toString()}
+                    onChange={handleFieldChange("trigger_delay")}
+                    autoComplete="off"
+                  />
+                  <TextField
+                    label="Session Cooldown (hours)"
+                    type="number"
+                    value={formState.session_cooldown.toString()}
+                    onChange={handleFieldChange("session_cooldown")}
+                    autoComplete="off"
+                  />
+                  <Checkbox
+                    label="Enable on mobile devices"
+                    checked={formState.enable_mobile}
+                    onChange={handleCheckboxChange("enable_mobile")}
+                  />
+                </BlockStack>
+              </Card>
 
-        <s-section heading="Branding & Colors">
-          <s-stack direction="inline" gap="base">
-            <s-text-field
-              label="Header Color"
-              name="header_color"
-              type="color"
-              value={settings.header_color}
-            />
-            <s-text-field
-              label="Button Color"
-              name="button_color"
-              type="color"
-              value={settings.button_color}
-            />
-          </s-stack>
-        </s-section>
-
-        <s-section heading="Behavior & Triggers">
-          <s-stack direction="block" gap="base">
-            <s-text-field
-              label="Trigger Delay (seconds)"
-              name="trigger_delay"
-              type="number"
-              value={settings.trigger_delay}
-            />
-            <s-text-field
-              label="Session Cooldown (hours)"
-              name="session_cooldown"
-              type="number"
-              value={settings.session_cooldown}
-            />
-            <s-checkbox
-              label="Enable on mobile devices"
-              name="enable_mobile"
-              value="true"
-              checked={settings.enable_mobile ? "true" : undefined}
-            />
-          </s-stack>
-        </s-section>
-
-        <s-section heading="Teaser & CTA">
-          <s-stack direction="block" gap="base">
-            <s-text-field
-              label="Teaser Headline"
-              name="teaser_headline"
-              value={settings.teaser_headline}
-              help-text="Hook text on teaser card"
-            />
-            <s-text-field
-              label="CTA Label"
-              name="cta_label"
-              value={settings.cta_label}
-              help-text="Button text (e.g., 'Claim My Best Price')"
-            />
-          </s-stack>
-        </s-section>
-      </fetcher.Form>
-
-      {fetcher.data?.success && !isSaving && (
-        <s-banner tonality="success" title="Settings saved successfully" />
-      )}
-      {fetcher.data?.error && (
-        <s-banner tonality="critical" title="Error saving settings">
-          {fetcher.data.error}
-        </s-banner>
-      )}
-    </s-page>
+              <Card>
+                <BlockStack gap="400">
+                  <Text variant="headingMd" as="h2">Teaser & CTA</Text>
+                  <TextField
+                    label="Teaser Headline"
+                    value={formState.teaser_headline}
+                    onChange={handleFieldChange("teaser_headline")}
+                    helpText="Hook text on teaser card"
+                    autoComplete="off"
+                  />
+                  <TextField
+                    label="CTA Label"
+                    value={formState.cta_label}
+                    onChange={handleFieldChange("cta_label")}
+                    helpText="Button text (e.g., 'Claim My Best Price')"
+                    autoComplete="off"
+                  />
+                </BlockStack>
+              </Card>
+            </BlockStack>
+          </Layout.Section>
+        </Layout>
+        {showToast && (
+          <Toast content="Settings saved successfully" onDismiss={toggleToast} />
+        )}
+        {fetcher.data?.error && (
+          <Box paddingBlockStart="400">
+            <InlineError message={fetcher.data.error} fieldID="settings-form" />
+          </Box>
+        )}
+      </Page>
+    </Frame>
   );
 }

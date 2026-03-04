@@ -1,4 +1,26 @@
+import { useState, useCallback, useEffect, useRef, memo } from "react";
 import { useLoaderData, useFetcher } from "react-router";
+import {
+    Page,
+    Layout,
+    Card,
+    BlockStack,
+    TextField,
+    InlineStack,
+    Button,
+    Select,
+    Text,
+    Box,
+    Divider,
+    ResourceList,
+    ResourceItem,
+    Toast,
+    Frame,
+    Icon,
+    Modal,
+    Thumbnail as PolarisThumbnail,
+} from "@shopify/polaris";
+import { DeleteIcon, SearchIcon } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server";
 import supabase from "../supabase.server";
 
@@ -9,20 +31,24 @@ export const loader = async ({ request }) => {
     const searchQuery = url.searchParams.get("product_query");
 
     // 1. Get Store ID
-    const { data: shopRecord } = await supabase
+    let { data: shopRecord, error: shopError } = await supabase
         .from('shops')
         .select('id')
         .eq('shop_domain', shopDomain)
         .single();
 
+    if (!shopRecord) {
+        return { rules: [], collections: [], searchResults: [], shopId: null };
+    }
+
     // 2. Fetch Rules
-    const { data: rules } = await supabase
+    const { data: rulesData, error: rulesError } = await supabase
         .from('discount_rules')
         .select('*')
         .eq('store_id', shopRecord.id)
         .order('priority', { ascending: false });
 
-    // 3. Fetch Collections (Categories) from Shopify
+    // 3. Fetch Collections
     const collectionsResponse = await admin.graphql(`
     #graphql
     query getCollections {
@@ -31,7 +57,6 @@ export const loader = async ({ request }) => {
           node {
             id
             title
-            handle
           }
         }
       }
@@ -40,31 +65,44 @@ export const loader = async ({ request }) => {
     const collectionsJson = await collectionsResponse.json();
     const collections = collectionsJson.data.collections.edges.map(e => e.node);
 
-    // 4. Product Search (if query exists)
-    let searchResults = [];
-    if (searchQuery) {
-        const productsResponse = await admin.graphql(`
-        #graphql
-        query searchProducts($query: String!) {
-          products(first: 5, query: $query) {
-            edges {
-              node {
+    const rules = rulesData || [];
+
+    // 4. Fetch Product Details for Product Rules
+    const productRuleIds = rules
+        .filter(r => r.scope_type === 'product' && r.scope_id)
+        .map(r => r.scope_id);
+
+    let productDetails = {};
+    if (productRuleIds.length > 0) {
+        const productInfoResponse = await admin.graphql(`
+          #graphql
+          query getProductsInfo($ids: [ID!]!) {
+            nodes(ids: $ids) {
+              ... on Product {
                 id
                 title
-                handle
                 featuredImage {
-                   url
+                  url
                 }
               }
             }
           }
+        `, { variables: { ids: productRuleIds } });
+
+        const productInfoJson = await productInfoResponse.json();
+        if (productInfoJson.data?.nodes) {
+            productInfoJson.data.nodes.forEach(node => {
+                if (node) {
+                    productDetails[node.id] = {
+                        title: node.title,
+                        image: node.featuredImage?.url
+                    };
+                }
+            });
         }
-      `, { variables: { query: searchQuery } });
-        const productsJson = await productsResponse.json();
-        searchResults = productsJson.data.products.edges.map(e => e.node);
     }
 
-    return { rules, collections, searchResults, shopId: shopRecord.id };
+    return { rules, collections, productDetails, shopId: shopRecord.id };
 };
 
 export const action = async ({ request }) => {
@@ -73,33 +111,49 @@ export const action = async ({ request }) => {
     const intent = formData.get("intent");
     const shopId = formData.get("shopId");
 
+    console.log(`Action Intent: ${intent} for shopId: ${shopId}`);
+
     if (intent === "save_global") {
+        const id = formData.get("id");
         const minPct = parseFloat(formData.get("min_discount_percent"));
         const maxPct = parseFloat(formData.get("max_discount_percent"));
         const strategy = formData.get("counter_strategy");
 
+        const upsertData = {
+            store_id: shopId,
+            scope_type: 'global',
+            scope_id: null,
+            min_discount_percent: minPct,
+            max_discount_percent: maxPct,
+            counter_strategy: strategy,
+            is_active: true,
+            priority: 0
+        };
+
+        if (id && id !== "null") upsertData.id = id;
+
         const { error } = await supabase
             .from('discount_rules')
-            .upsert({
-                store_id: shopId,
-                scope_type: 'global',
-                min_discount_percent: minPct,
-                max_discount_percent: maxPct,
-                counter_strategy: strategy,
-                is_active: true,
-                priority: 0
-            }, { onConflict: 'store_id,scope_type' });
+            .upsert(upsertData, { onConflict: 'id' });
 
-        if (error) return { success: false, error: error.message };
+        if (error) {
+            console.error("Supabase Error (save_global):", error);
+            return { success: false, error: error.message };
+        }
     }
 
     if (intent === "delete_rule") {
         const id = formData.get("id");
-        await supabase.from('discount_rules').delete().eq('id', id);
+        const { error } = await supabase.from('discount_rules').delete().eq('id', id);
+        if (error) {
+            console.error("Supabase Error (delete_rule):", error);
+            return { success: false, error: error.message };
+        }
     }
 
     if (intent === "add_category_rule") {
-        await supabase.from('discount_rules').insert({
+        const id = formData.get("id");
+        const upsertData = {
             store_id: shopId,
             scope_type: 'category',
             scope_id: formData.get("scope_id"),
@@ -107,146 +161,430 @@ export const action = async ({ request }) => {
             max_discount_percent: parseFloat(formData.get("max_pct")),
             counter_strategy: 'split_difference',
             priority: 10
-        });
+        };
+
+        if (id && id !== "null") upsertData.id = id;
+
+        const { error } = await supabase.from('discount_rules').upsert(upsertData, { onConflict: 'id' });
+        if (error) {
+            console.error("Supabase Error (add_category_rule):", error);
+            return { success: false, error: error.message };
+        }
     }
 
     if (intent === "add_product_rule") {
-        await supabase.from('discount_rules').insert({
+        const id = formData.get("id");
+        const upsertData = {
             store_id: shopId,
             scope_type: 'product',
-            scope_id: formData.get("scope_id"), // This should be a UUID-safe version? Actually the table allows text or numeric?
-            // User rules check scope_id is uuid null. 
-            // WAIT, the table 'discount_rules' has scope_id as uuid null. 
-            // Shopify GIDs are not UUIDs. I need a solution.
+            scope_id: formData.get("scope_id"),
             min_discount_percent: parseFloat(formData.get("min_pct")),
             max_discount_percent: parseFloat(formData.get("max_pct")),
             counter_strategy: 'split_difference',
             priority: 100
-        });
+        };
+
+        if (id && id !== "null") upsertData.id = id;
+
+        const { error } = await supabase.from('discount_rules').upsert(upsertData, { onConflict: 'id' });
+        if (error) {
+            console.error("Supabase Error (add_product_rule):", error);
+            return { success: false, error: error.message };
+        }
     }
 
     return { success: true };
 };
 
-export default function NegotiationRules() {
-    const { rules, collections, searchResults, shopId } = useLoaderData();
-    const fetcher = useFetcher();
+// ProductRuleRow is no longer used for search results
+// Existing rules are listed directly in the parent component for simplicity
 
-    const globalRule = rules.find(r => r.scope_type === 'global') || {
+
+export default function NegotiationRules() {
+    const { rules, collections, productDetails, shopId } = useLoaderData();
+    const fetcher = useFetcher();
+    const isSaving = fetcher.state === "submitting" || fetcher.state === "loading";
+
+    const [showToast, setShowToast] = useState(false);
+    const [toastMessage, setToastMessage] = useState("Changes saved");
+    const [toastError, setToastError] = useState(false);
+
+    // Resource Picker & Modal States
+    const [isProductModalOpen, setIsProductModalOpen] = useState(false);
+    const [selectedProduct, setSelectedProduct] = useState(null);
+    const [modalMin, setModalMin] = useState("10");
+    const [modalMax, setModalMax] = useState("30");
+    const [modalError, setModalError] = useState(null);
+
+    const initialGlobal = rules.find(r => r.scope_type === 'global') || {
         min_discount_percent: 5,
         max_discount_percent: 20,
         counter_strategy: 'split_difference'
     };
 
+    // Controlled States for Global Rule
+    const [minDiscount, setMinDiscount] = useState(initialGlobal.min_discount_percent.toString());
+    const [maxDiscount, setMaxDiscount] = useState(initialGlobal.max_discount_percent.toString());
+    const [strategy, setStrategy] = useState(initialGlobal.counter_strategy);
+
+    // Controlled States for New Category Rule
+    const [newCategoryScope, setNewCategoryScope] = useState("");
+    const [newCategoryMin, setNewCategoryMin] = useState("5");
+    const [newCategoryMax, setNewCategoryMax] = useState("25");
+
     const categoryRules = rules.filter(r => r.scope_type === 'category');
     const productRules = rules.filter(r => r.scope_type === 'product');
 
+    const strategyOptions = [
+        { label: 'Split Difference', value: 'split_difference' },
+        { label: 'Hold Firm', value: 'hold_firm' },
+        { label: 'Concede Once', value: 'concede_once' },
+    ];
+
+    const collectionOptions = [
+        { label: 'Select a category...', value: '' },
+        ...collections.map(c => ({ label: c.title, value: c.id }))
+    ];
+
+    const openResourcePicker = async () => {
+        const selection = await window.shopify.resourcePicker({
+            type: "product",
+            multiple: false,
+        });
+
+        if (selection && selection.length > 0) {
+            const product = selection[0];
+            setSelectedProduct(product);
+
+            // Look for existing rule
+            const existing = productRules.find(r => r.scope_id === product.id);
+            if (existing) {
+                setModalMin(existing.min_discount_percent?.toString() || "10");
+                setModalMax(existing.max_discount_percent?.toString() || "30");
+            } else {
+                setModalMin("10");
+                setModalMax("30");
+            }
+
+            setModalError(null);
+            setIsProductModalOpen(true);
+        }
+    };
+
+    const handleModalSubmit = useCallback(() => {
+        const min = parseFloat(modalMin);
+        const max = parseFloat(modalMax);
+
+        if (isNaN(min) || isNaN(max)) {
+            setModalError("Discount values are required");
+            return;
+        }
+        if (min < 0 || max > 100 || min > 100 || max < 0) {
+            setModalError("Percents must be 0-100");
+            return;
+        }
+        if (min > max) {
+            setModalError("Min must be <= Max");
+            return;
+        }
+
+        const existingRule = productRules.find(r => r.scope_id === selectedProduct.id);
+
+        fetcher.submit(
+            {
+                intent: "add_product_rule",
+                shopId: shopId.toString(),
+                scope_id: selectedProduct.id,
+                id: existingRule?.id || "",
+                min_pct: modalMin,
+                max_pct: modalMax,
+            },
+            { method: "post" }
+        );
+        setIsProductModalOpen(false);
+    }, [modalMin, modalMax, selectedProduct, shopId, productRules, fetcher]);
+
+    useEffect(() => {
+        if (fetcher.data && !isSaving) {
+            const intent = fetcher.formData?.get("intent");
+            if (fetcher.data.success) {
+                if (intent !== "delete_rule") {
+                    setToastMessage("Changes saved");
+                    setToastError(false);
+                    setShowToast(true);
+                }
+            } else if (fetcher.data.error) {
+                setToastMessage(fetcher.data.error);
+                setToastError(true);
+                setShowToast(true);
+            }
+        }
+    }, [fetcher.data, isSaving]);
+
+    const handleUpdateGlobal = useCallback(() => {
+        fetcher.submit(
+            {
+                intent: "save_global",
+                id: initialGlobal.id || "",
+                shopId: shopId.toString(),
+                min_discount_percent: minDiscount,
+                max_discount_percent: maxDiscount,
+                counter_strategy: strategy,
+            },
+            { method: "post" }
+        );
+    }, [fetcher, shopId, minDiscount, maxDiscount, strategy, initialGlobal.id]);
+
+    const handleAddCategoryRule = useCallback(() => {
+        if (!newCategoryScope) return;
+        // Check if a rule for this category already exists
+        const existingRule = categoryRules.find(r => r.scope_id === newCategoryScope);
+
+        fetcher.submit(
+            {
+                intent: "add_category_rule",
+                id: existingRule?.id || "",
+                shopId: shopId.toString(),
+                scope_id: newCategoryScope,
+                min_pct: newCategoryMin,
+                max_pct: newCategoryMax,
+            },
+            { method: "post" }
+        );
+    }, [fetcher, shopId, newCategoryScope, newCategoryMin, newCategoryMax, categoryRules]);
+
     return (
-        <s-page heading="Negotiation Rules">
+        <Frame>
+            <Page title="Negotiation Rules">
+                <Layout>
+                    {/* GLOBAL RULES */}
+                    <Layout.Section>
+                        <Card>
+                            <BlockStack gap="400">
+                                <Text variant="headingMd" as="h2">Global Rules (Priority 0)</Text>
+                                <Text as="p" tone="subdued">These rules apply to all products unless overridden.</Text>
+                                <InlineStack align="end" gap="400">
+                                    <div style={{ flex: 1 }}>
+                                        <TextField
+                                            label="Min Discount %"
+                                            type="number"
+                                            value={minDiscount}
+                                            onChange={setMinDiscount}
+                                            autoComplete="off"
+                                        />
+                                    </div>
+                                    <div style={{ flex: 1 }}>
+                                        <TextField
+                                            label="Max Discount %"
+                                            type="number"
+                                            value={maxDiscount}
+                                            onChange={setMaxDiscount}
+                                            autoComplete="off"
+                                        />
+                                    </div>
+                                    <div style={{ flex: 1 }}>
+                                        <Select
+                                            label="Counter Strategy"
+                                            options={strategyOptions}
+                                            value={strategy}
+                                            onChange={setStrategy}
+                                        />
+                                    </div>
+                                    <Button
+                                        onClick={handleUpdateGlobal}
+                                        loading={isSaving && fetcher.formData?.get("intent") === "save_global"}
+                                        variant="primary"
+                                    >
+                                        Update Global
+                                    </Button>
+                                </InlineStack>
+                            </BlockStack>
+                        </Card>
+                    </Layout.Section>
 
-            <s-section heading="Global Rules (Priority 0)">
-                <s-paragraph>These rules apply to all products unless overridden.</s-paragraph>
-                <fetcher.Form method="post">
-                    <input type="hidden" name="intent" value="save_global" />
-                    <input type="hidden" name="shopId" value={shopId} />
-                    <s-stack direction="inline" gap="base">
-                        <s-text-field label="Min Discount %" name="min_discount_percent" type="number" value={globalRule.min_discount_percent} />
-                        <s-text-field label="Max Discount %" name="max_discount_percent" type="number" value={globalRule.max_discount_percent} />
-                        <s-select label="Counter Strategy" name="counter_strategy" value={globalRule.counter_strategy}>
-                            <option value="split_difference">Split Difference</option>
-                            <option value="hold_firm">Hold Firm</option>
-                            <option value="concede_once">Concede Once</option>
-                        </s-select>
-                        <s-button submit="true">Update Global</s-button>
-                    </s-stack>
-                </fetcher.Form>
-            </s-section>
+                    {/* CATEGORY OVERRIDES */}
+                    <Layout.Section>
+                        <Card>
+                            <BlockStack gap="400">
+                                <Text variant="headingMd" as="h2">Category Overrides (Priority 10)</Text>
 
-            <s-section heading="Category Overrides (Priority 10)">
-                <s-stack direction="block" gap="base">
-                    {categoryRules.map(rule => {
-                        const collection = collections.find(c => c.id === rule.scope_id);
-                        return (
-                            <s-box key={rule.id} padding="base" borderWidth="base" borderRadius="base">
-                                <s-stack direction="inline" align="center" gap="base">
-                                    <s-text style={{ flex: 1 }}>{collection?.title || "Unknown Collection"}</s-text>
-                                    <s-text>{rule.min_discount_percent}% - {rule.max_discount_percent}%</s-text>
-                                    <fetcher.Form method="post">
-                                        <input type="hidden" name="intent" value="delete_rule" />
-                                        <input type="hidden" name="id" value={rule.id} />
-                                        <s-button variant="tertiary" tone="critical" onClick={(e) => e.target.closest('form').submit()}>Remove</s-button>
-                                    </fetcher.Form>
-                                </s-stack>
-                            </s-box>
-                        );
-                    })}
+                                {categoryRules.length > 0 && (
+                                    <ResourceList
+                                        resourceName={{ singular: 'rule', plural: 'rules' }}
+                                        items={categoryRules}
+                                        renderItem={(rule) => {
+                                            const collection = collections.find(c => c.id === rule.scope_id);
+                                            return (
+                                                <ResourceItem id={rule.id}>
+                                                    <InlineStack align="space-between" blockAlign="center">
+                                                        <BlockStack gap="100">
+                                                            <Text variant="bodyMd" fontWeight="bold">{collection?.title || "Unknown Collection"}</Text>
+                                                            <Text tone="subdued">{rule.min_discount_percent}% - {rule.max_discount_percent}% Discount</Text>
+                                                        </BlockStack>
+                                                        <fetcher.Form method="post">
+                                                            <input type="hidden" name="intent" value="delete_rule" />
+                                                            <input type="hidden" name="id" value={rule.id} />
+                                                            <Button icon={DeleteIcon} tone="critical" variant="tertiary" submit />
+                                                        </fetcher.Form>
+                                                    </InlineStack>
+                                                </ResourceItem>
+                                            );
+                                        }}
+                                    />
+                                )}
 
-                    <s-box padding="base" background="subdued" borderRadius="base">
-                        <fetcher.Form method="post">
-                            <input type="hidden" name="intent" value="add_category_rule" />
-                            <input type="hidden" name="shopId" value={shopId} />
-                            <s-stack direction="inline" gap="base" align="end">
-                                <s-select label="Select Category" name="scope_id" style={{ flex: 1 }}>
-                                    {collections.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
-                                </s-select>
-                                <s-text-field label="Min %" name="min_pct" type="number" value="5" />
-                                <s-text-field label="Max %" name="max_pct" type="number" value="25" />
-                                <s-button submit="true">Add Override</s-button>
-                            </s-stack>
-                        </fetcher.Form>
-                    </s-box>
-                </s-stack>
-            </s-section>
+                                <Divider />
 
-            <s-section heading="Product Overrides (Priority 100)">
-                <s-stack direction="block" gap="base">
-                    {productRules.map(rule => (
-                        <s-box key={rule.id} padding="base" borderWidth="base" borderRadius="base">
-                            <s-stack direction="inline" align="center" gap="base">
-                                <s-text style={{ flex: 1 }}>Product ID: {rule.scope_id}</s-text>
-                                <s-text>{rule.min_discount_percent}% - {rule.max_discount_percent}%</s-text>
-                                <fetcher.Form method="post">
-                                    <input type="hidden" name="intent" value="delete_rule" />
-                                    <input type="hidden" name="id" value={rule.id} />
-                                    <s-button variant="tertiary" tone="critical" onClick={(e) => e.target.closest('form').submit()}>Remove</s-button>
-                                </fetcher.Form>
-                            </s-stack>
-                        </s-box>
-                    ))}
+                                <Box paddingBlockStart="200">
+                                    <InlineStack gap="300" align="end">
+                                        <div style={{ flex: 1 }}>
+                                            <Select
+                                                label="Select Category"
+                                                options={collectionOptions}
+                                                value={newCategoryScope}
+                                                onChange={setNewCategoryScope}
+                                            />
+                                        </div>
+                                        <div style={{ width: '80px' }}>
+                                            <TextField
+                                                label="Min %"
+                                                type="number"
+                                                value={newCategoryMin}
+                                                onChange={setNewCategoryMin}
+                                                autoComplete="off"
+                                            />
+                                        </div>
+                                        <div style={{ width: '80px' }}>
+                                            <TextField
+                                                label="Max %"
+                                                type="number"
+                                                value={newCategoryMax}
+                                                onChange={setNewCategoryMax}
+                                                autoComplete="off"
+                                            />
+                                        </div>
+                                        <Button
+                                            onClick={handleAddCategoryRule}
+                                            loading={isSaving && fetcher.formData?.get("intent") === "add_category_rule"}
+                                            variant="primary"
+                                        >
+                                            Add Override
+                                        </Button>
+                                    </InlineStack>
+                                </Box>
+                            </BlockStack>
+                        </Card>
+                    </Layout.Section>
 
-                    <s-box padding="base" background="subdued" borderRadius="base">
-                        <fetcher.Form method="get" action="/app/negotiation-rules">
-                            <s-stack direction="inline" align="end" gap="base">
-                                <s-text-field label="Search Product" name="product_query" placeholder="Type name..." style={{ flex: 1 }} />
-                                <s-button submit="true">Search</s-button>
-                            </s-stack>
-                        </fetcher.Form>
+                    {/* PRODUCT OVERRIDES */}
+                    <Layout.Section>
+                        <Card>
+                            <BlockStack gap="400">
+                                <Text variant="headingMd" as="h2">Product Overrides (Priority 100)</Text>
 
-                        {searchResults.length > 0 && (
-                            <s-stack direction="block" gap="tight" style={{ marginTop: '10px' }}>
-                                {searchResults.map(p => (
-                                    <s-box key={p.id} padding="tight" background="default" borderRadius="base" borderWidth="base">
-                                        <s-stack direction="inline" align="center" gap="base">
-                                            <s-text style={{ flex: 1 }}>{p.title}</s-text>
-                                            <fetcher.Form method="post">
-                                                <input type="hidden" name="intent" value="add_product_rule" />
-                                                <input type="hidden" name="shopId" value={shopId} />
-                                                <input type="hidden" name="scope_id" value={p.id} />
-                                                <s-stack direction="inline" gap="tight" align="center">
-                                                    <s-text-field label="Min %" name="min_pct" type="number" value="10" />
-                                                    <s-text-field label="Max %" name="max_pct" type="number" value="30" />
-                                                    <s-button submit="true">Add</s-button>
-                                                </s-stack>
-                                            </fetcher.Form>
-                                        </s-stack>
-                                    </s-box>
-                                ))}
-                            </s-stack>
-                        )}
-                    </s-box>
-                </s-stack>
-            </s-section>
+                                {productRules.length > 0 && (
+                                    <ResourceList
+                                        resourceName={{ singular: 'rule', plural: 'rules' }}
+                                        items={productRules}
+                                        renderItem={(rule) => (
+                                            <ResourceItem id={rule.id}>
+                                                <InlineStack align="space-between" blockAlign="center">
+                                                    <InlineStack gap="300" blockAlign="center">
+                                                        <PolarisThumbnail
+                                                            source={productDetails[rule.scope_id]?.image || ""}
+                                                            alt={productDetails[rule.scope_id]?.title || "Product"}
+                                                            size="small"
+                                                        />
+                                                        <BlockStack gap="100">
+                                                            <Text variant="bodyMd" fontWeight="bold">
+                                                                {productDetails[rule.scope_id]?.title || `Product ID: ${rule.scope_id.split('/').pop()}`}
+                                                            </Text>
+                                                            <Text tone="subdued">{rule.min_discount_percent}% - {rule.max_discount_percent}% Discount</Text>
+                                                        </BlockStack>
+                                                    </InlineStack>
+                                                    <fetcher.Form method="post">
+                                                        <input type="hidden" name="intent" value="delete_rule" />
+                                                        <input type="hidden" name="id" value={rule.id} />
+                                                        <Button icon={DeleteIcon} tone="critical" variant="tertiary" submit />
+                                                    </fetcher.Form>
+                                                </InlineStack>
+                                            </ResourceItem>
+                                        )}
+                                    />
+                                )}
 
-        </s-page>
+                                <Divider />
+                                <Box paddingBlockStart="200">
+                                    <Button onClick={openResourcePicker} variant="primary">
+                                        Add Product Override
+                                    </Button>
+                                </Box>
+
+                                <Modal
+                                    open={isProductModalOpen}
+                                    onClose={() => setIsProductModalOpen(false)}
+                                    title={`Set discounts for ${selectedProduct?.title}`}
+                                    primaryAction={{
+                                        content: 'Save Override',
+                                        onAction: handleModalSubmit,
+                                        loading: isSaving && fetcher.formData?.get("intent") === "add_product_rule"
+                                    }}
+                                    secondaryActions={[
+                                        {
+                                            content: 'Cancel',
+                                            onAction: () => setIsProductModalOpen(false),
+                                        },
+                                    ]}
+                                >
+                                    <Modal.Section>
+                                        <BlockStack gap="400">
+                                            {selectedProduct && selectedProduct.images?.[0] && (
+                                                <InlineStack align="center">
+                                                    <PolarisThumbnail
+                                                        source={selectedProduct.images[0].originalSrc || selectedProduct.images[0].url}
+                                                        alt={selectedProduct.title}
+                                                        size="large"
+                                                    />
+                                                </InlineStack>
+                                            )}
+
+                                            <InlineStack gap="400">
+                                                <div style={{ flex: 1 }}>
+                                                    <TextField
+                                                        label="Min Discount %"
+                                                        type="number"
+                                                        value={modalMin}
+                                                        onChange={setModalMin}
+                                                        autoComplete="off"
+                                                        helpText="Minimum discount allowed for this product"
+                                                        error={modalError && modalError.includes("Min") ? modalError : null}
+                                                    />
+                                                </div>
+                                                <div style={{ flex: 1 }}>
+                                                    <TextField
+                                                        label="Max Discount %"
+                                                        type="number"
+                                                        value={modalMax}
+                                                        onChange={setModalMax}
+                                                        autoComplete="off"
+                                                        helpText="Maximum discount allowed for this product"
+                                                        error={modalError && modalError.includes("Max") ? modalError : null}
+                                                    />
+                                                </div>
+                                            </InlineStack>
+
+                                            {modalError && !modalError.includes("Min") && !modalError.includes("Max") && (
+                                                <Text tone="critical">{modalError}</Text>
+                                            )}
+                                        </BlockStack>
+                                    </Modal.Section>
+                                </Modal>
+                            </BlockStack>
+                        </Card>
+                    </Layout.Section>
+                </Layout>
+                {showToast && <Toast content={toastMessage} error={toastError} onDismiss={() => setShowToast(false)} />}
+            </Page>
+        </Frame>
     );
 }
