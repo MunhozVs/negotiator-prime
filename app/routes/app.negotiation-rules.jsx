@@ -102,7 +102,20 @@ export const loader = async ({ request }) => {
         }
     }
 
-    return { rules, collections, productDetails, shopId: shopRecord.id };
+    // 5. Fetch Shopify Store ID
+    const shopResponse = await admin.graphql(`
+        #graphql
+        query getShop {
+          shop {
+            id
+          }
+        }
+    `);
+    const shopJson = await shopResponse.json();
+    const shopifyGid = shopJson.data.shop.id;
+    const shopifyStoreId = shopifyGid.split('/').pop();
+
+    return { rules, collections, productDetails, shopId: shopRecord.id, shopifyStoreId };
 };
 
 export const action = async ({ request }) => {
@@ -110,8 +123,9 @@ export const action = async ({ request }) => {
     const formData = await request.formData();
     const intent = formData.get("intent");
     const shopId = formData.get("shopId");
+    const shopifyStoreId = formData.get("shopifyStoreId");
 
-    console.log(`Action Intent: ${intent} for shopId: ${shopId}`);
+    console.log(`Action Intent: ${intent} for shopId: ${shopId}, shopifyStoreId: ${shopifyStoreId}`);
 
     if (intent === "save_global") {
         const id = formData.get("id");
@@ -121,6 +135,7 @@ export const action = async ({ request }) => {
 
         const upsertData = {
             store_id: shopId,
+            shopify_store_id: shopifyStoreId,
             scope_type: 'global',
             scope_id: null,
             min_discount_percent: minPct,
@@ -155,6 +170,7 @@ export const action = async ({ request }) => {
         const id = formData.get("id");
         const upsertData = {
             store_id: shopId,
+            shopify_store_id: shopifyStoreId,
             scope_type: 'category',
             scope_id: formData.get("scope_id"),
             min_discount_percent: parseFloat(formData.get("min_pct")),
@@ -176,6 +192,7 @@ export const action = async ({ request }) => {
         const id = formData.get("id");
         const upsertData = {
             store_id: shopId,
+            shopify_store_id: shopifyStoreId,
             scope_type: 'product',
             scope_id: formData.get("scope_id"),
             min_discount_percent: parseFloat(formData.get("min_pct")),
@@ -201,7 +218,7 @@ export const action = async ({ request }) => {
 
 
 export default function NegotiationRules() {
-    const { rules, collections, productDetails, shopId } = useLoaderData();
+    const { rules, collections, productDetails, shopId, shopifyStoreId } = useLoaderData();
     const fetcher = useFetcher();
     const isSaving = fetcher.state === "submitting" || fetcher.state === "loading";
 
@@ -294,6 +311,7 @@ export default function NegotiationRules() {
             {
                 intent: "add_product_rule",
                 shopId: shopId.toString(),
+                shopifyStoreId: shopifyStoreId.toString(),
                 scope_id: selectedProduct.id,
                 id: existingRule?.id || "",
                 min_pct: modalMin,
@@ -327,6 +345,7 @@ export default function NegotiationRules() {
                 intent: "save_global",
                 id: initialGlobal.id || "",
                 shopId: shopId.toString(),
+                shopifyStoreId: shopifyStoreId.toString(),
                 min_discount_percent: minDiscount,
                 max_discount_percent: maxDiscount,
                 counter_strategy: strategy,
@@ -345,6 +364,7 @@ export default function NegotiationRules() {
                 intent: "add_category_rule",
                 id: existingRule?.id || "",
                 shopId: shopId.toString(),
+                shopifyStoreId: shopifyStoreId.toString(),
                 scope_id: newCategoryScope,
                 min_pct: newCategoryMin,
                 max_pct: newCategoryMax,

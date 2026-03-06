@@ -437,7 +437,7 @@
 
     <div class="np-chat-body" id="np-chat-messages">
       <div class="np-message bot" id="np-welcome-msg">
-        Hello! I saw you're interested in {{ product.title }}. Want to negotiate a better price? Make your offer below!
+        Hello! I saw you're interested in <strong>{{ product.title }}</strong>. Want to negotiate a better price? Make your offer below!
       </div>
     </div>
     <div class="np-chat-footer">
@@ -457,6 +457,7 @@
       shop: "{{ shop.permanent_domain }}",
       currency: "{{ cart.currency.iso_code }}",
       moneyFormat: "{{ shop.money_format | strip_html | escape }}",
+      store_id: "{{ shop.id }}",
       webhookUrl: "https://n8n-ydavid-u67684.vm.elestio.app/webhook/negotiator-prime"
     };
 
@@ -464,23 +465,57 @@
       window.ShopifyBotConfig.product = {
         id: {{ product.id | json }},
         title: {{ product.title | json }},
+        handle: {{ product.handle | json }},
+        vendor: {{ product.vendor | json }},
+        type: {{ product.type | json }},
+        tags: {{ product.tags | json }},
         price: {{ product.price | money_without_currency | json }},
         variantId: {{ product.selected_or_first_available_variant.id | json }},
-        image: {{ product.featured_image | img_url: 'medium' | json }}
+        image: {{ product.featured_image | img_url: 'medium' | json }},
+        variants: [
+          {% for variant in product.variants %}
+            {
+              id: {{ variant.id | json }},
+              title: {{ variant.title | json }},
+              price: {{ variant.price | money_without_currency | json }},
+              sku: {{ variant.sku | json }},
+              available: {{ variant.available | json }}
+            }{% unless forloop.last %},{% endunless %}
+          {% endfor %}
+        ],
+        images: [
+          {% for image in product.images %}
+            {
+              id: {{ image.id | json }},
+              src: {{ image.src | img_url: 'master' | json }},
+              alt: {{ image.alt | json }}
+            }{% unless forloop.last %},{% endunless %}
+          {% endfor %}
+        ],
+        options: {{ product.options_with_values | json }}
       };
 
-      // Generate or retrieve Chat ID (persistent per product session)
+      // Generate or retrieve Chat ID (UUID persistent per product session)
       try {
-        var storageKey = 'np_chat_id_' + window.ShopifyBotConfig.product.id;
+        var storageKey = 'np_chat_id_v2_' + window.ShopifyBotConfig.product.id;
         var chatId = sessionStorage.getItem(storageKey);
+        
         if (!chatId) {
-          chatId = 'chat_' + Math.random().toString(36).substring(2, 11) + '_' + Date.now();
+          // Robust UUID v4 generator
+          if (window.crypto && window.crypto.randomUUID) {
+            chatId = window.crypto.randomUUID();
+          } else {
+            chatId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+              var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+              return v.toString(16);
+            });
+          }
           sessionStorage.setItem(storageKey, chatId);
         }
         window.ShopifyBotConfig.chatId = chatId;
       } catch (e) {
-        console.warn("Negotiator Prime: sessionStorage access failed, using temporary ID.");
-        window.ShopifyBotConfig.chatId = 'chat_temp_' + Math.random().toString(36).substring(2, 11);
+        console.warn("Negotiator Prime: sessionStorage access failed.");
+        window.ShopifyBotConfig.chatId = '00000000-0000-0000-0000-000000000000'; // Fallback
       }
     {% endif %}
 
@@ -536,27 +571,51 @@
       }, triggerDelay);
     }
 
-    // Fetch Settings
-    var appUrl = "{{ block.settings.app_url }}";
-    if (appUrl) {
-      fetch(appUrl + "/api/settings?shop=" + window.ShopifyBotConfig.shop)
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-           console.log("Negotiator Prime: Settings loaded", data);
-           applyDynamicSettings(data);
-        })
-        .catch(function(e) { 
-          console.warn("Negotiator Prime: Could not load dynamic settings", e);
-          // Fallback to default teaser show
-          setTimeout(function() { setState('teaser'); }, 1000);
-        });
-    } else {
-      // No app URL configured, use defaults
-      setTimeout(function() { setState('teaser'); }, 1000);
+    // Fetch Settings via App Proxy
+    fetch("/apps/negotiator/settings?shop=" + window.ShopifyBotConfig.shop)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+         console.log("Negotiator Prime: Settings loaded", data);
+         applyDynamicSettings(data);
+      })
+      .catch(function(e) { 
+        console.warn("Negotiator Prime: Could not load dynamic settings", e);
+        // Fallback to default teaser show
+        setTimeout(function() { setState('teaser'); }, 1000);
+      });
+    
+    // Logging function for Supabase
+    function logInteraction(sender, content, metadata) {
+      const logPayload = {
+        chatId: window.ShopifyBotConfig.chatId,
+        shop: window.ShopifyBotConfig.shop,
+        sender: sender,
+        content: content,
+        productId: window.ShopifyBotConfig.product ? window.ShopifyBotConfig.product.id : null,
+        metadata: metadata || {}
+      };
+
+      fetch("/apps/negotiator/chat-logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(logPayload)
+      }).catch(err => console.warn("Negotiator Prime: Failed to log interaction", err));
     }
 
     function setState(newState) {
       if (currentState === newState || currentState === 'disabled') return;
+      
+      // Log opening event
+      if (newState === 'open' && (currentState === 'teaser' || currentState === 'collapsed')) {
+        // Log welcome message if it's the first time opening
+        const welcomeLogged = sessionStorage.getItem('np_welcome_logged_' + window.ShopifyBotConfig.chatId);
+        if (!welcomeLogged) {
+          const welcomeText = document.getElementById('np-welcome-msg')?.innerText;
+          if (welcomeText) logInteraction('bot', welcomeText, { event: 'welcome' });
+          sessionStorage.setItem('np_welcome_logged_' + window.ShopifyBotConfig.chatId, 'true');
+        }
+      }
+
       currentState = newState;
       
       collapsedIcon.classList.remove('np-show', 'np-hide');
@@ -595,14 +654,19 @@
       msgDiv.className = 'np-message ' + sender;
       
       if (sender === 'bot') {
-        // Detect URLs and convert to links
+        // 1. Detect bold (Markdown: **text**)
+        var boldRegex = /\*\*(.*?)\*\*/g;
+        var processedText = text.replace(boldRegex, '<strong>$1</strong>');
+
+        // 2. Detect URLs and convert to links
         var urlRegex = /(https?:\/\/[^\s]+)/g;
-        var linkedText = text.replace(urlRegex, function(url) {
+        processedText = processedText.replace(urlRegex, function(url) {
           return '<a href="' + url + '" target="_blank" rel="noopener noreferrer">' + url + '</a>';
         });
-        // Replace newlines with <br>
-        linkedText = linkedText.replace(/\n/g, '<br>');
-        msgDiv.innerHTML = linkedText;
+
+        // 3. Replace newlines with <br>
+        processedText = processedText.replace(/\n/g, '<br>');
+        msgDiv.innerHTML = processedText;
       } else {
         msgDiv.textContent = text;
       }
@@ -636,12 +700,16 @@
       isSending = true;
       showTyping();
 
+      // Log User Message to Supabase
+      logInteraction('user', message);
+
       // Prepare payload with context
       var payload = {
         chatId: window.ShopifyBotConfig.chatId || ('chat_jit_' + Math.random().toString(36).substring(2, 11)),
         message: message,
         shop: window.ShopifyBotConfig.shop,
         currency: window.ShopifyBotConfig.currency,
+        store_id: window.ShopifyBotConfig.store_id,
         product: window.ShopifyBotConfig.product
       };
 
@@ -728,6 +796,9 @@
         }
 
         appendMessage(respostaBot, 'bot');
+        
+        // Log Bot Message to Supabase
+        logInteraction('bot', respostaBot);
       })
       .catch(function(error) {
         removeTyping();
@@ -771,7 +842,6 @@
   "name": "Negotiator Prime",
   "target": "body",
   "settings": [
-    { "type": "text", "id": "app_url", "label": "App Base URL", "default": "https://primestyle.com/app" },
     { "type": "color", "id": "main_color", "label": "Cor Primária (Fallback)", "default": "#1B2A4A" },
     { "type": "color", "id": "accent_color", "label": "Cor de Destaque (Fallback)", "default": "#C9A84C" }
   ]

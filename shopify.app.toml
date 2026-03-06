@@ -29,6 +29,11 @@ use_legacy_install_flow = false
 [auth]
 redirect_urls = [ ]
 
+[app_proxy]
+url = "https://primestyle.com/api"
+subpath = "negotiator"
+prefix = "apps"
+
 [product.metafields.app.demo_info]
 type = "single_line_text_field"
 name = "Demo Source Info"

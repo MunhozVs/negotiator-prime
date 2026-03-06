@@ -1,13 +1,27 @@
 import supabase from "../supabase.server";
 
 export const loader = async ({ request }) => {
+    if (request.method === "OPTIONS") {
+        return new Response(null, {
+            status: 204,
+            headers: {
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type",
+            }
+        });
+    }
+
     const url = new URL(request.url);
     const shop = url.searchParams.get("shop");
 
     if (!shop) {
         return new Response(JSON.stringify({ error: "Missing shop parameter" }), {
             status: 400,
-            headers: { "Content-Type": "application/json" }
+            headers: {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*"
+            }
         });
     }
 
@@ -21,7 +35,10 @@ export const loader = async ({ request }) => {
     if (!shopRecord) {
         return new Response(JSON.stringify({ error: "Shop not found" }), {
             status: 404,
-            headers: { "Content-Type": "application/json" }
+            headers: {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*"
+            }
         });
     }
 
@@ -55,9 +72,22 @@ export const loader = async ({ request }) => {
     });
 };
 
-export const action = () => {
+export const action = async ({ request }) => {
+    if (request.method === "OPTIONS") {
+        return new Response(null, {
+            status: 204,
+            headers: {
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type",
+            }
+        });
+    }
     return new Response(JSON.stringify({ error: "Method not allowed" }), {
         status: 405,
-        headers: { "Content-Type": "application/json" }
+        headers: {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*"
+        }
     });
 };
