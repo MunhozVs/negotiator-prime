@@ -115,7 +115,21 @@ export const loader = async ({ request }) => {
     const shopifyGid = shopJson.data.shop.id;
     const shopifyStoreId = shopifyGid.split('/').pop();
 
-    return { rules, collections, productDetails, shopId: shopRecord.id, shopifyStoreId };
+    // 6. Fetch Shop Settings for Lead Capture
+    const { data: shopSettings } = await supabase
+        .from('shop_settings')
+        .select('email_capture_round, terms_and_conditions_link')
+        .eq('store_id', shopRecord.id)
+        .single();
+
+    return {
+        rules,
+        collections,
+        productDetails,
+        shopId: shopRecord.id,
+        shopifyStoreId,
+        shopSettings: shopSettings || {}
+    };
 };
 
 export const action = async ({ request }) => {
@@ -154,6 +168,40 @@ export const action = async ({ request }) => {
         if (error) {
             console.error("Supabase Error (save_global):", error);
             return { success: false, error: error.message };
+        }
+    }
+
+    if (intent === "save_capture_settings") {
+        const emailCaptureRound = formData.get("email_capture_round");
+        const termsLink = formData.get("terms_and_conditions_link");
+
+        // Try to update existing record first
+        const { error: updateError, data: updatedData } = await supabase
+            .from('shop_settings')
+            .update({
+                email_capture_round: emailCaptureRound,
+                terms_and_conditions_link: termsLink
+            })
+            .eq('store_id', shopId)
+            .select();
+
+        // If no record exists, insert a new one
+        if (!updatedData || updatedData.length === 0) {
+            const { error: insertError } = await supabase
+                .from('shop_settings')
+                .insert([{
+                    store_id: shopId,
+                    email_capture_round: emailCaptureRound,
+                    terms_and_conditions_link: termsLink
+                }]);
+
+            if (insertError) {
+                console.error("Supabase Error (insert capture settings):", insertError);
+                return { success: false, error: insertError.message };
+            }
+        } else if (updateError) {
+            console.error("Supabase Error (update capture settings):", updateError);
+            return { success: false, error: updateError.message };
         }
     }
 
@@ -218,7 +266,7 @@ export const action = async ({ request }) => {
 
 
 export default function NegotiationRules() {
-    const { rules, collections, productDetails, shopId, shopifyStoreId } = useLoaderData();
+    const { rules, collections, productDetails, shopId, shopifyStoreId, shopSettings } = useLoaderData();
     const fetcher = useFetcher();
     const isSaving = fetcher.state === "submitting" || fetcher.state === "loading";
 
@@ -257,6 +305,19 @@ export default function NegotiationRules() {
         { label: 'Hold Firm', value: 'hold_firm' },
         { label: 'Concede Once', value: 'concede_once' },
     ];
+
+    const captureRoundOptions = [
+        { label: 'Before starting (Round 0)', value: 'pre_start' },
+        { label: 'After Round 1', value: 'round_1' },
+        { label: 'After Round 2', value: 'round_2' },
+        { label: 'After Round 3', value: 'round_3' },
+        { label: 'After Round 4', value: 'round_4' },
+        { label: 'After finishing (Win/Loss)', value: 'post_end' },
+        { label: 'Never ask', value: 'never' },
+    ];
+
+    const [emailCaptureRound, setEmailCaptureRound] = useState(shopSettings?.email_capture_round || "round_1");
+    const [termsLink, setTermsLink] = useState(shopSettings?.terms_and_conditions_link || "");
 
     const collectionOptions = [
         { label: 'Select a category...', value: '' },
@@ -371,7 +432,19 @@ export default function NegotiationRules() {
             },
             { method: "post" }
         );
-    }, [fetcher, shopId, newCategoryScope, newCategoryMin, newCategoryMax, categoryRules]);
+    }, [fetcher, shopId, newCategoryScope, newCategoryMin, newCategoryMax, categoryRules, shopifyStoreId]);
+
+    const handleUpdateCaptureSettings = useCallback(() => {
+        fetcher.submit(
+            {
+                intent: "save_capture_settings",
+                shopId: shopId.toString(),
+                email_capture_round: emailCaptureRound,
+                terms_and_conditions_link: termsLink,
+            },
+            { method: "post" }
+        );
+    }, [fetcher, shopId, emailCaptureRound, termsLink]);
 
     return (
         <Frame>
@@ -599,6 +672,42 @@ export default function NegotiationRules() {
                                         </BlockStack>
                                     </Modal.Section>
                                 </Modal>
+                            </BlockStack>
+                        </Card>
+                    </Layout.Section>
+
+                    {/* LEAD CAPTURE & LEGAL */}
+                    <Layout.Section>
+                        <Card>
+                            <BlockStack gap="400">
+                                <Text variant="headingMd" as="h2">Lead Capture & Legal</Text>
+                                <Text as="p" tone="subdued">Configure when the bot will ask for the customer's email and set your store's terms and conditions link.</Text>
+                                <BlockStack gap="400">
+                                    <Select
+                                        label="When should the bot ask for the user's email?"
+                                        options={captureRoundOptions}
+                                        value={emailCaptureRound}
+                                        onChange={setEmailCaptureRound}
+                                        helpText="Choose the optimal negotiation round to capture the email address."
+                                    />
+                                    <TextField
+                                        label="Terms & Conditions Page URL (Optional)"
+                                        value={termsLink}
+                                        onChange={setTermsLink}
+                                        placeholder="https://yourstore.com/policies/terms-of-service"
+                                        autoComplete="url"
+                                        helpText="If provided, customers must agree to these terms when submitting their email."
+                                    />
+                                    <InlineStack align="start">
+                                        <Button
+                                            onClick={handleUpdateCaptureSettings}
+                                            loading={isSaving && fetcher.formData?.get("intent") === "save_capture_settings"}
+                                            variant="primary"
+                                        >
+                                            Save Settings
+                                        </Button>
+                                    </InlineStack>
+                                </BlockStack>
                             </BlockStack>
                         </Card>
                     </Layout.Section>

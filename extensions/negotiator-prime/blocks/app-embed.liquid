@@ -404,7 +404,6 @@
       💎
     </div>
     <div class="np-teaser-text" id="np-teaser-body">
-      Negotiate this price!
     </div>
     <button class="np-teaser-close" id="np-teaser-close">&times;</button>
   </div>
@@ -458,7 +457,9 @@
       currency: "{{ cart.currency.iso_code }}",
       moneyFormat: "{{ shop.money_format | strip_html | escape }}",
       store_id: "{{ shop.id }}",
-      webhookUrl: "https://n8n-ydavid-u67684.vm.elestio.app/webhook/negotiator-prime"
+      webhookUrl: "https://n8n-ydavid-u67684.vm.elestio.app/webhook/deterministic-bot",
+      currentRound: 0,
+      currentPrice: null
     };
 
     {% if product %}
@@ -495,28 +496,38 @@
         options: {{ product.options_with_values | json }}
       };
 
-      // Generate or retrieve Chat ID (UUID persistent per product session)
-      try {
-        var storageKey = 'np_chat_id_v2_' + window.ShopifyBotConfig.product.id;
-        var chatId = sessionStorage.getItem(storageKey);
-        
-        if (!chatId) {
-          // Robust UUID v4 generator
-          if (window.crypto && window.crypto.randomUUID) {
-            chatId = window.crypto.randomUUID();
-          } else {
-            chatId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-              var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
-              return v.toString(16);
-            });
-          }
-          sessionStorage.setItem(storageKey, chatId);
+      // ID Management Logic
+      (function() {
+        function generateUUID() {
+          if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
+          return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+          });
         }
-        window.ShopifyBotConfig.chatId = chatId;
-      } catch (e) {
-        console.warn("Negotiator Prime: sessionStorage access failed.");
-        window.ShopifyBotConfig.chatId = '00000000-0000-0000-0000-000000000000'; // Fallback
-      }
+
+        // 1. Visitor ID: Persistent across sessions (localStorage)
+        try {
+          var vKey = 'np_visitor_id_v1';
+          var visitorId = localStorage.getItem(vKey);
+          if (!visitorId) {
+            visitorId = generateUUID();
+            localStorage.setItem(vKey, visitorId);
+          }
+          window.ShopifyBotConfig.visitor_id = visitorId;
+        } catch (e) {
+          console.warn("Negotiator Prime: localStorage failed.", e);
+          window.ShopifyBotConfig.visitor_id = 'anon_visitor';
+        }
+
+        // 2. Chat ID: New per page refresh to allow fresh negotiations
+        window.ShopifyBotConfig.chatId = generateUUID();
+        
+        console.log("Negotiator Prime Session:", {
+          visitor_id: window.ShopifyBotConfig.visitor_id,
+          chatId: window.ShopifyBotConfig.chatId
+        });
+      })();
     {% endif %}
 
     console.log("Negotiator Prime Configured:", window.ShopifyBotConfig);
@@ -538,8 +549,10 @@
     var isSending = false;
     var settingsLoaded = false;
     var triggerDelay = 1000; // Default 1s
+    var SETTINGS_CACHE_KEY = 'np_settings_cache_' + window.ShopifyBotConfig.shop;
+    var SETTINGS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
-    function applyDynamicSettings(data) {
+    function applyDynamicSettings(data, fromCache) {
       if (!data || !data.settings) return;
       var s = data.settings;
       
@@ -553,8 +566,8 @@
       if (s.teaser_headline) teaserHeadline.textContent = s.teaser_headline;
       if (s.cta_label) chatInput.placeholder = s.cta_label;
 
-      // 3. Behavior
-      if (s.trigger_delay) triggerDelay = s.trigger_delay * 1000;
+      // 3. Behavior (only apply delay on first show, not on background revalidation)
+      if (s.trigger_delay && !settingsLoaded) triggerDelay = s.trigger_delay * 1000;
       
       // 4. Mobile Toggle
       var isMobile = window.innerWidth <= 480;
@@ -563,36 +576,81 @@
         return;
       }
 
-      settingsLoaded = true;
-      
-      // Start flow after delay
-      setTimeout(function() {
-        if (currentState !== 'disabled') setState('teaser');
-      }, triggerDelay);
+      // 5. Lead Capture & Legal (Stored globally for the webhook)
+      window.ShopifyBotConfig.emailCaptureRound = s.email_capture_round || "round_1";
+      window.ShopifyBotConfig.termsLink = s.terms_and_conditions_link || "";
+
+      // Show teaser (only if not already shown by a previous call)
+      if (!settingsLoaded) {
+        settingsLoaded = true;
+        setTimeout(function() {
+          if (currentState !== 'disabled') setState('teaser');
+        }, fromCache ? 0 : triggerDelay);
+      }
     }
 
-    // Fetch Settings via App Proxy
-    fetch("/apps/negotiator/settings?shop=" + window.ShopifyBotConfig.shop)
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-         console.log("Negotiator Prime: Settings loaded", data);
-         applyDynamicSettings(data);
-      })
-      .catch(function(e) { 
-        console.warn("Negotiator Prime: Could not load dynamic settings", e);
-        // Fallback to default teaser show
-        setTimeout(function() { setState('teaser'); }, 1000);
-      });
+    function fetchFreshSettings(applyImmediately) {
+      fetch("/apps/negotiator/settings?shop=" + window.ShopifyBotConfig.shop)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          console.log("Negotiator Prime: Settings loaded" + (applyImmediately ? "" : " (background refresh)"), data);
+          // Save to cache
+          try {
+            localStorage.setItem(SETTINGS_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: data }));
+          } catch(e) {}
+          // Apply immediately on first load (no cache), or just update text/colors silently on revalidation
+          if (applyImmediately) applyDynamicSettings(data, false);
+        })
+        .catch(function(e) { 
+          if (applyImmediately) {
+            console.warn("Negotiator Prime: Could not load dynamic settings", e);
+            // Fallback: show with defaults after a short delay
+            setTimeout(function() { if (!settingsLoaded) setState('teaser'); }, 1000);
+          }
+        });
+    }
+
+    // Stale-while-revalidate: use cache instantly, refresh in background
+    var cachedNow = false;
+    try {
+      var cached = JSON.parse(localStorage.getItem(SETTINGS_CACHE_KEY));
+      if (cached && cached.data && (Date.now() - cached.ts) < SETTINGS_CACHE_TTL) {
+        // Fresh cache: apply instantly, revalidate in background
+        console.log("Negotiator Prime: Settings from cache");
+        applyDynamicSettings(cached.data, true);
+        fetchFreshSettings(false); // background refresh
+        cachedNow = true;
+      } else if (cached && cached.data) {
+        // Stale cache: show instantly with stale data, fetch fresh
+        console.log("Negotiator Prime: Stale cache, showing immediately and refreshing");
+        applyDynamicSettings(cached.data, true);
+        fetchFreshSettings(false);
+        cachedNow = true;
+      }
+    } catch(e) {}
+
+    if (!cachedNow) {
+      // No cache: first-time visitor, fetch normally
+      fetchFreshSettings(true);
+    }
     
     // Logging function for Supabase
     function logInteraction(sender, content, metadata) {
       const logPayload = {
         chatId: window.ShopifyBotConfig.chatId,
+        visitor_id: window.ShopifyBotConfig.visitor_id,
         shop: window.ShopifyBotConfig.shop,
+        store_id: window.ShopifyBotConfig.store_id,
         sender: sender,
         content: content,
         productId: window.ShopifyBotConfig.product ? window.ShopifyBotConfig.product.id : null,
-        metadata: metadata || {}
+        product_title: window.ShopifyBotConfig.product ? window.ShopifyBotConfig.product.title : null,
+        variant_id: window.ShopifyBotConfig.product ? window.ShopifyBotConfig.product.variantId : null,
+        metadata: {
+          round: window.ShopifyBotConfig.currentRound,
+          offer_value: window.ShopifyBotConfig.currentPrice,
+          ...(metadata || {})
+        }
       };
 
       fetch("/apps/negotiator/chat-logs", {
@@ -643,10 +701,8 @@
       }
     }
 
-    setTimeout(function() {
-      // Show teaser on load
-      setState('teaser');
-    }, 1000);
+    // NOTE: The teaser is shown by applyDynamicSettings() after settings load.
+    // A fallback is already in the fetch .catch() handler above.
 
     // Chat Functions
     function appendMessage(text, sender) {
@@ -703,14 +759,19 @@
       // Log User Message to Supabase
       logInteraction('user', message);
 
-      // Prepare payload with context
+      // Prepare reduced payload with context
       var payload = {
-        chatId: window.ShopifyBotConfig.chatId || ('chat_jit_' + Math.random().toString(36).substring(2, 11)),
         message: message,
-        shop: window.ShopifyBotConfig.shop,
-        currency: window.ShopifyBotConfig.currency,
+        chatId: window.ShopifyBotConfig.chatId,
+        visitor_id: window.ShopifyBotConfig.visitor_id,
         store_id: window.ShopifyBotConfig.store_id,
-        product: window.ShopifyBotConfig.product
+        productId: window.ShopifyBotConfig.product ? window.ShopifyBotConfig.product.id : null,
+        variantId: window.ShopifyBotConfig.product ? window.ShopifyBotConfig.product.variantId : null,
+        productPrice: window.ShopifyBotConfig.product ? window.ShopifyBotConfig.product.price : null,
+        emailCaptureRound: window.ShopifyBotConfig.emailCaptureRound || "round_1",
+        termsLink: window.ShopifyBotConfig.termsLink || "",
+        currentRound: window.ShopifyBotConfig.currentRound,
+        currentPrice: window.ShopifyBotConfig.currentPrice
       };
 
       console.log("Negotiator Prime Debug: Sending Payload ->", JSON.stringify(payload, null, 2));
@@ -750,6 +811,8 @@
         isSending = false;
         
         var respostaBot = "Ok, we received your message but the response format was unexpected.";
+        var roundBot = null;
+        var offerValueBot = null;
         
         if (!data || (typeof data === 'string' && data.trim() === "")) {
           respostaBot = "Oops! We received an empty response from the server. Please check your automation settings.";
@@ -774,16 +837,26 @@
                 var outputObj = typeof outputData === 'string' ? JSON.parse(outputData) : outputData;
                 if (outputObj && outputObj.message) {
                   respostaBot = outputObj.message;
+                  roundBot = outputObj.round;
+                  offerValueBot = outputObj.offer_value;
                 } else if (typeof outputData === 'string') {
                   respostaBot = outputData;
                 }
               } else if (firstItem.message) {
                 respostaBot = firstItem.message;
+                roundBot = firstItem.round;
+                offerValueBot = firstItem.offer_value;
+              } else if (firstItem.reply) {
+                respostaBot = firstItem.reply;
+                roundBot = firstItem.round;
+                offerValueBot = firstItem.offer_value;
               }
             } 
             // Case 2: Simple Object { "reply": "..." } or { "message": "..." }
             else if (typeof data === 'object') {
               respostaBot = data.reply || data.message || data.output || respostaBot;
+              roundBot = data.round;
+              offerValueBot = data.offer_value;
             }
             // Case 3: Raw String fallback
             else if (typeof data === 'string') {
@@ -795,10 +868,18 @@
           }
         }
 
+        // Update global state if returned from bot
+        if (roundBot !== null && roundBot !== undefined) window.ShopifyBotConfig.currentRound = Number(roundBot);
+        if (offerValueBot !== null && offerValueBot !== undefined) window.ShopifyBotConfig.currentPrice = Number(offerValueBot);
+
         appendMessage(respostaBot, 'bot');
         
         // Log Bot Message to Supabase
-        logInteraction('bot', respostaBot);
+        var metadata = {};
+        if (roundBot !== undefined && roundBot !== null) metadata.round = Number(roundBot);
+        if (offerValueBot !== undefined && offerValueBot !== null) metadata.offer_value = Number(offerValueBot);
+        
+        logInteraction('bot', respostaBot, Object.keys(metadata).length > 0 ? metadata : null);
       })
       .catch(function(error) {
         removeTyping();

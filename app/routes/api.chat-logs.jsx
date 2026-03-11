@@ -24,7 +24,7 @@ export const action = async ({ request }) => {
 
     try {
         const body = await request.json();
-        const { chatId, shop, sender, content, productId, metadata } = body;
+        const { chatId, visitor_id, shop, sender, content, productId, product_title, variant_id, metadata, store_id } = body;
 
         if (!chatId || !shop || !sender || !content) {
             return new Response(JSON.stringify({ error: "Missing required fields" }), {
@@ -57,16 +57,33 @@ export const action = async ({ request }) => {
         const { error: insertError } = await supabase
             .from('chat_interactions')
             .insert([{
-                shop_id: shopRecord.id,
+                shop_id: shopRecord.id, // Supabase UUID
+                store_id: store_id ? store_id.toString() : null, // Shopify numeric ID
                 chat_id: chatId,
-                product_id: productId,
+                visitor_id: visitor_id, // Storing as a column
+                product_id: productId?.toString(),
+                product_title: product_title,
+                variant_id: variant_id?.toString(),
                 sender,
                 content,
+                current_round: metadata?.round ? Number(metadata.round) : null,
+                current_price: metadata?.offer_value ? Number(metadata.offer_value) : null,
                 metadata: metadata || {}
             }]);
 
         if (insertError) {
-            console.error("Supabase Insert Error:", insertError);
+            console.error("Supabase Insert Error into chat_interactions:", {
+                message: insertError.message,
+                details: insertError.details,
+                hint: insertError.hint,
+                code: insertError.code,
+                data: {
+                    store_id: shopRecord.id,
+                    chat_id: chatId,
+                    sender,
+                    content
+                }
+            });
             return new Response(JSON.stringify({ error: insertError.message }), {
                 status: 500,
                 headers: {

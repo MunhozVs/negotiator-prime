@@ -15,6 +15,7 @@ import {
   Divider,
   Toast,
   Frame,
+  Select,
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import supabase from "../supabase.server";
@@ -59,6 +60,7 @@ export const loader = async ({ request }) => {
       session_cooldown: 24,
       teaser_headline: 'Negotiate this price!',
       cta_label: 'Claim My Best Price',
+      bot_personality: 'friendly',
     };
   }
 
@@ -81,6 +83,7 @@ export const action = async ({ request }) => {
     session_cooldown: parseInt(formData.get("session_cooldown") || "24", 10),
     teaser_headline: formData.get("teaser_headline"),
     cta_label: formData.get("cta_label"),
+    bot_personality: formData.get("bot_personality") || "friendly",
     updated_at: new Date().toISOString(),
   };
 
@@ -152,6 +155,16 @@ export default function Index() {
                     helpText="Public URL for the custom avatar image"
                     autoComplete="off"
                   />
+                  <Select
+                    label="Bot Personality"
+                    options={[
+                      { label: 'Friendly', value: 'friendly' },
+                      { label: 'Firm', value: 'firm' },
+                      { label: 'Luxury', value: 'luxury' },
+                    ]}
+                    value={formState.bot_personality || 'friendly'}
+                    onChange={handleFieldChange("bot_personality")}
+                  />
                 </BlockStack>
               </Card>
 
@@ -162,19 +175,64 @@ export default function Index() {
                     <div style={{ flex: 1 }}>
                       <TextField
                         label="Header Color"
-                        type="color"
                         value={formState.header_color}
-                        onChange={handleFieldChange("header_color")}
+                        onChange={(val) => {
+                          // Accept with or without '#', always store as #RRGGBB
+                          const normalized = val.startsWith('#') ? val : '#' + val;
+                          handleFieldChange("header_color")(normalized);
+                        }}
                         autoComplete="off"
+                        placeholder="#1B2A4A"
+                        prefix={
+                          <div style={{ position: 'relative', width: 24, height: 24 }}>
+                            <div style={{
+                              width: 24, height: 24, borderRadius: 4,
+                              backgroundColor: formState.header_color,
+                              border: '1px solid #ccc', cursor: 'pointer'
+                            }} />
+                            <input
+                              type="color"
+                              value={formState.header_color}
+                              onChange={(e) => handleFieldChange("header_color")(e.target.value)}
+                              style={{
+                                position: 'absolute', top: 0, left: 0,
+                                width: '100%', height: '100%',
+                                opacity: 0, cursor: 'pointer', padding: 0, border: 'none'
+                              }}
+                            />
+                          </div>
+                        }
                       />
                     </div>
                     <div style={{ flex: 1 }}>
                       <TextField
                         label="Button Color"
-                        type="color"
                         value={formState.button_color}
-                        onChange={handleFieldChange("button_color")}
+                        onChange={(val) => {
+                          const normalized = val.startsWith('#') ? val : '#' + val;
+                          handleFieldChange("button_color")(normalized);
+                        }}
                         autoComplete="off"
+                        placeholder="#C9A84C"
+                        prefix={
+                          <div style={{ position: 'relative', width: 24, height: 24 }}>
+                            <div style={{
+                              width: 24, height: 24, borderRadius: 4,
+                              backgroundColor: formState.button_color,
+                              border: '1px solid #ccc', cursor: 'pointer'
+                            }} />
+                            <input
+                              type="color"
+                              value={formState.button_color}
+                              onChange={(e) => handleFieldChange("button_color")(e.target.value)}
+                              style={{
+                                position: 'absolute', top: 0, left: 0,
+                                width: '100%', height: '100%',
+                                opacity: 0, cursor: 'pointer', padding: 0, border: 'none'
+                              }}
+                            />
+                          </div>
+                        }
                       />
                     </div>
                   </InlineStack>

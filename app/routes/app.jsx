@@ -21,6 +21,7 @@ export default function App() {
           <a href="/app" rel="home">
             General Settings
           </a>
+          <a href="/app/dashboard">Dashboard</a>
           <a href="/app/negotiation-rules">Negotiation Rules</a>
         </ui-nav-menu>
         <Outlet />
