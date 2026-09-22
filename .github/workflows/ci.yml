@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SHOPIFY_API_KEY: build-placeholder
+      SHOPIFY_API_SECRET: build-placeholder
+      SHOPIFY_APP_URL: https://example.com
+      SUPABASE_URL: https://example.supabase.co
+      SUPABASE_SERVICE_KEY: build-placeholder
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run build

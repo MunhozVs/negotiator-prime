@@ -1,0 +1,915 @@
+<style>
+  /* Base Reset for Bot */
+  #negotiator-prime-container {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    z-index: 2147483647; /* Set to absolute max z-index */
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+  }
+
+  /* Colors */
+  :root {
+    --np-primary: #1B2A4A;
+    --np-accent: #C9A84C;
+    --np-bg: #FFFFFF;
+    --np-text: #333333;
+    --np-msg-user: #e8f0fe;
+    --np-msg-bot: #f1f3f4;
+  }
+
+  /* --- States --- */
+  
+  /* Collapsed Icon */
+  .np-collapsed-icon {
+    background-color: var(--np-primary);
+    color: var(--np-accent);
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 30px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    cursor: pointer;
+    transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease, visibility 0.4s;
+    transform: scale(0);
+    opacity: 0;
+    visibility: hidden;
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    z-index: 2;
+  }
+
+  .np-collapsed-icon.np-show {
+    transform: scale(1);
+    opacity: 1;
+    visibility: visible;
+  }
+
+  .np-collapsed-icon.np-hide {
+    transform: scale(0);
+    opacity: 0;
+    visibility: hidden;
+  }
+
+  /* Teaser Card */
+  .np-teaser-card {
+    background-color: var(--np-bg);
+    border: 1px solid #ECECEC;
+    border-radius: 8px;
+    padding: 12px 16px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    margin-bottom: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease, visibility 0.4s;
+    transform: translateX(120%);
+    opacity: 0;
+    visibility: hidden;
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    white-space: nowrap;
+    z-index: 1;
+  }
+
+  .np-teaser-card.np-show {
+    transform: translateX(0);
+    opacity: 1;
+    visibility: visible;
+  }
+
+  .np-teaser-card.np-hide {
+    transform: translateX(120%);
+    opacity: 0;
+    visibility: hidden;
+  }
+
+  .np-teaser-icon {
+    background-color: var(--np-primary);
+    color: var(--np-accent);
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+  }
+
+  .np-teaser-text {
+    color: var(--np-text);
+    font-size: 14px;
+    font-weight: 500;
+    padding-right: 8px;
+  }
+
+  .np-teaser-close {
+    color: #999;
+    font-size: 20px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0 0 0 8px;
+    border-left: 1px solid #EEE;
+  }
+  
+  .np-teaser-close:hover {
+    color: #333;
+  }
+
+  /* Chatbot Panel */
+  .np-chat-panel {
+    width: 380px;
+    height: 600px;
+    max-height: calc(100vh - 40px);
+    background-color: var(--np-bg);
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease, visibility 0.4s;
+    transform: translateY(20px) scale(0.95);
+    opacity: 0;
+    visibility: hidden;
+    transform-origin: bottom right;
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    z-index: 3;
+  }
+
+  .np-chat-panel.np-show {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+    visibility: visible;
+  }
+
+  .np-chat-panel.np-hide {
+    transform: translateY(20px) scale(0.95);
+    opacity: 0;
+    visibility: hidden;
+  }
+
+  .np-chat-header {
+    background-color: var(--np-primary);
+    color: #FFF;
+    padding: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 2px solid var(--np-accent);
+  }
+
+  .np-chat-title {
+    font-weight: 600;
+    font-size: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .np-chat-close {
+    background: none;
+    border: none;
+    color: #FFF;
+    font-size: 24px;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0;
+  }
+
+  .np-chat-body {
+    flex: 1;
+    padding: 16px;
+    overflow-y: auto;
+    background-color: #F8F9FA;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  /* Chat Messages Styles */
+  .np-message {
+    max-width: 80%;
+    padding: 10px 14px;
+    border-radius: 18px;
+    font-size: 14px;
+    line-height: 1.4;
+    word-wrap: break-word;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  }
+
+  .np-message.user {
+    align-self: flex-end;
+    background-color: var(--np-msg-user);
+    color: var(--np-text);
+    border-bottom-right-radius: 4px;
+  }
+
+  .np-message.bot {
+    align-self: flex-start;
+    background-color: var(--np-msg-bot);
+    color: var(--np-text);
+    border-bottom-left-radius: 4px;
+    border: 1px solid #E5E5E5;
+  }
+
+  .np-message a {
+    color: #0066cc;
+    text-decoration: underline;
+    word-break: break-all;
+  }
+  
+  .np-message a:hover {
+    color: #004499;
+  }
+
+  .np-message.error {
+    background-color: #fee;
+    color: #c00;
+    border: 1px solid #fcc;
+  }
+
+  /* Typing Indicator - standalone, does NOT inherit from np-message */
+  .np-typing-bubble {
+    align-self: flex-start;
+    background-color: var(--np-msg-bot);
+    border: 1px solid #E5E5E5;
+    border-radius: 18px;
+    border-bottom-left-radius: 4px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 12px 16px;
+    width: fit-content;
+  }
+  .np-dot {
+    width: 8px;
+    height: 8px;
+    background-color: #888;
+    border-radius: 50%;
+    flex-shrink: 0;
+    animation: np-typing-bounce 1.2s infinite ease-in-out;
+  }
+  .np-dot:nth-child(1) { animation-delay: 0s; }
+  .np-dot:nth-child(2) { animation-delay: 0.2s; }
+  .np-dot:nth-child(3) { animation-delay: 0.4s; }
+
+  @keyframes np-typing-bounce {
+    0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+    30% { transform: translateY(-6px); opacity: 1; }
+  }
+
+  /* Product Mini-Card */
+  .np-product-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background-color: #fff;
+    border-bottom: 1px solid #ECECEC;
+    flex-shrink: 0;
+  }
+
+  .np-product-card-img {
+    width: 44px;
+    height: 44px;
+    border-radius: 6px;
+    object-fit: cover;
+    flex-shrink: 0;
+    border: 1px solid #ECECEC;
+  }
+
+  .np-product-card-info {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .np-product-card-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--np-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .np-product-card-price {
+    font-size: 12px;
+    color: var(--np-primary);
+    font-weight: 500;
+    margin-top: 2px;
+  }
+
+  .np-product-card-badge {
+    font-size: 10px;
+    background-color: var(--np-accent);
+    color: var(--np-primary);
+    padding: 2px 7px;
+    border-radius: 10px;
+    font-weight: 700;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .np-chat-footer {
+    padding: 16px;
+    background-color: var(--np-bg);
+    border-top: 1px solid #ECECEC;
+  }
+
+  .np-chat-input-wrapper {
+    display: flex;
+    gap: 8px;
+  }
+
+  .np-chat-input {
+    flex: 1;
+    padding: 10px 14px;
+    border: 1px solid #CCC;
+    border-radius: 20px;
+    outline: none;
+    font-size: 14px;
+  }
+
+  .np-chat-input:focus {
+    border-color: var(--np-primary);
+  }
+
+  .np-chat-send {
+    background-color: var(--np-primary);
+    color: var(--np-accent);
+    border: none;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    transition: background-color 0.2s;
+  }
+
+  .np-chat-send:hover {
+    background-color: #243b6a;
+  }
+
+  /* Responsive styling */
+  @media (max-width: 480px) {
+    #negotiator-prime-container {
+      bottom: 0;
+      right: 0;
+      width: 100%;
+    }
+    
+    .np-collapsed-icon {
+      bottom: 20px;
+      right: 20px;
+    }
+
+    .np-teaser-card {
+      bottom: 20px;
+      right: 20px;
+    }
+
+    .np-chat-panel {
+      width: 100%;
+      height: 100vh;
+      max-height: 100vh;
+      border-radius: 0;
+    }
+  }
+</style>
+
+<div id="negotiator-prime-container">
+  
+  <!-- Collapsed Icon -->
+  <div id="np-collapsed" class="np-collapsed-icon">
+    💎
+  </div>
+
+  <!-- Teaser Card -->
+  <div id="np-teaser" class="np-teaser-card">
+    <div class="np-teaser-icon">
+      💎
+    </div>
+    <div class="np-teaser-text" id="np-teaser-body">
+    </div>
+    <button class="np-teaser-close" id="np-teaser-close">&times;</button>
+  </div>
+
+  <!-- Chatbot Panel -->
+  <div id="np-panel" class="np-chat-panel">
+    <div class="np-chat-header">
+      <div class="np-chat-title">
+        <span style="color: var(--np-accent);">💎</span> Negotiator Prime
+      </div>
+      <button id="np-close" class="np-chat-close">&times;</button>
+    </div>
+
+    {% if product %}
+    <div class="np-product-card">
+      {% if product.featured_image %}
+        <img
+          class="np-product-card-img"
+          src="{{ product.featured_image | img_url: 'small' }}"
+          alt="{{ product.title | escape }}"
+        />
+      {% endif %}
+      <div class="np-product-card-info">
+        <div class="np-product-card-title">{{ product.title }}</div>
+        <div class="np-product-card-price">{{ product.price | money }}</div>
+      </div>
+      <span class="np-product-card-badge">Negotiating</span>
+    </div>
+    {% endif %}
+
+    <div class="np-chat-body" id="np-chat-messages">
+      <div class="np-message bot" id="np-welcome-msg">
+        Hello! I saw you're interested in <strong>{{ product.title }}</strong>. Want to negotiate a better price? Make your offer below!
+      </div>
+    </div>
+    <div class="np-chat-footer">
+      <div class="np-chat-input-wrapper">
+        <input type="text" class="np-chat-input" id="np-input" placeholder="Make your offer..." autocomplete="off" />
+        <button class="np-chat-send" id="np-send">➤</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function() {
+    // Inject Shopify Globals
+    window.ShopifyBotConfig = {
+      product: null,
+      shop: "{{ shop.permanent_domain }}",
+      currency: "{{ cart.currency.iso_code }}",
+      moneyFormat: "{{ shop.money_format | strip_html | escape }}",
+      botUrl: "/apps/negotiator/bot",
+      currentRound: 0,
+      currentPrice: null
+    };
+
+    {% if product %}
+      window.ShopifyBotConfig.product = {
+        id: {{ product.id | json }},
+        title: {{ product.title | json }},
+        handle: {{ product.handle | json }},
+        vendor: {{ product.vendor | json }},
+        type: {{ product.type | json }},
+        tags: {{ product.tags | json }},
+        price: {{ product.price | money_without_currency | json }},
+        variantId: {{ product.selected_or_first_available_variant.id | json }},
+        image: {{ product.featured_image | img_url: 'medium' | json }},
+        variants: [
+          {% for variant in product.variants %}
+            {
+              id: {{ variant.id | json }},
+              title: {{ variant.title | json }},
+              price: {{ variant.price | money_without_currency | json }},
+              sku: {{ variant.sku | json }},
+              available: {{ variant.available | json }}
+            }{% unless forloop.last %},{% endunless %}
+          {% endfor %}
+        ],
+        images: [
+          {% for image in product.images %}
+            {
+              id: {{ image.id | json }},
+              src: {{ image.src | img_url: 'master' | json }},
+              alt: {{ image.alt | json }}
+            }{% unless forloop.last %},{% endunless %}
+          {% endfor %}
+        ],
+        options: {{ product.options_with_values | json }}
+      };
+
+      // ID Management Logic
+      (function() {
+        function generateUUID() {
+          if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
+          return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+          });
+        }
+
+        // 1. Visitor ID: Persistent across sessions (localStorage)
+        try {
+          var vKey = 'np_visitor_id_v1';
+          var visitorId = localStorage.getItem(vKey);
+          if (!visitorId) {
+            visitorId = generateUUID();
+            localStorage.setItem(vKey, visitorId);
+          }
+          window.ShopifyBotConfig.visitor_id = visitorId;
+        } catch (e) {
+          console.warn("Negotiator Prime: localStorage failed.", e);
+          window.ShopifyBotConfig.visitor_id = 'anon_visitor';
+        }
+
+        // 2. Chat ID: New per page refresh to allow fresh negotiations
+        window.ShopifyBotConfig.chatId = generateUUID();
+        
+      })();
+    {% endif %}
+
+    // DOM Elements
+    var collapsedIcon = document.getElementById('np-collapsed');
+    var teaser = document.getElementById('np-teaser');
+    var teaserCloseBtn = document.getElementById('np-teaser-close');
+    var teaserHeadline = document.getElementById('np-teaser-body');
+    var panel = document.getElementById('np-panel');
+    var chatTitle = document.querySelector('.np-chat-title');
+    var closeBtn = document.getElementById('np-close');
+    var chatBody = document.getElementById('np-chat-messages');
+    var chatInput = document.getElementById('np-input');
+    var sendBtn = document.getElementById('np-send');
+
+    // State Management
+    var currentState = 'hidden'; 
+    var isSending = false;
+    var settingsLoaded = false;
+    var triggerDelay = 1000; // Default 1s
+    var SETTINGS_CACHE_KEY = 'np_settings_cache_' + window.ShopifyBotConfig.shop;
+    var SETTINGS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+    function applyDynamicSettings(data, fromCache) {
+      if (!data || !data.settings) return;
+      var s = data.settings;
+      
+      // 1. Colors
+      var root = document.documentElement;
+      if (s.header_color) root.style.setProperty('--np-primary', s.header_color);
+      if (s.button_color) root.style.setProperty('--np-accent', s.button_color);
+
+      // 2. Text Content
+      if (s.chatbot_name) chatTitle.innerHTML = '<span style="color: var(--np-accent);">💎</span> ' + s.chatbot_name;
+      if (s.teaser_headline) teaserHeadline.textContent = s.teaser_headline;
+      if (s.cta_label) chatInput.placeholder = s.cta_label;
+
+      // 3. Behavior (only apply delay on first show, not on background revalidation)
+      if (s.trigger_delay && !settingsLoaded) triggerDelay = s.trigger_delay * 1000;
+      
+      // 4. Mobile Toggle
+      var isMobile = window.innerWidth <= 480;
+      if (isMobile && s.enable_mobile === false) {
+        currentState = 'disabled';
+        return;
+      }
+
+      // 5. Lead Capture & Legal (Stored globally for the webhook)
+      window.ShopifyBotConfig.emailCaptureRound = s.email_capture_round || "round_1";
+      window.ShopifyBotConfig.termsLink = s.terms_and_conditions_link || "";
+
+      // Show teaser (only if not already shown by a previous call)
+      if (!settingsLoaded) {
+        settingsLoaded = true;
+        setTimeout(function() {
+          if (currentState !== 'disabled') setState('teaser');
+        }, fromCache ? 0 : triggerDelay);
+      }
+    }
+
+    function fetchFreshSettings(applyImmediately) {
+      fetch("/apps/negotiator/settings")
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          // Save to cache
+          try {
+            localStorage.setItem(SETTINGS_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: data }));
+          } catch(e) {}
+          // Apply immediately on first load (no cache), or just update text/colors silently on revalidation
+          if (applyImmediately) applyDynamicSettings(data, false);
+        })
+        .catch(function(e) { 
+          if (applyImmediately) {
+            console.warn("Negotiator Prime: Could not load dynamic settings", e);
+            // Fallback: show with defaults after a short delay
+            setTimeout(function() { if (!settingsLoaded) setState('teaser'); }, 1000);
+          }
+        });
+    }
+
+    // Stale-while-revalidate: use cache instantly, refresh in background
+    var cachedNow = false;
+    try {
+      var cached = JSON.parse(localStorage.getItem(SETTINGS_CACHE_KEY));
+      if (cached && cached.data && (Date.now() - cached.ts) < SETTINGS_CACHE_TTL) {
+        // Fresh cache: apply instantly, revalidate in background
+        applyDynamicSettings(cached.data, true);
+        fetchFreshSettings(false); // background refresh
+        cachedNow = true;
+      } else if (cached && cached.data) {
+        // Stale cache: show instantly with stale data, fetch fresh
+        applyDynamicSettings(cached.data, true);
+        fetchFreshSettings(false);
+        cachedNow = true;
+      }
+    } catch(e) {}
+
+    if (!cachedNow) {
+      // No cache: first-time visitor, fetch normally
+      fetchFreshSettings(true);
+    }
+    
+    // Logging function for Supabase
+    function logInteraction(sender, content, metadata) {
+      const logPayload = {
+        chatId: window.ShopifyBotConfig.chatId,
+        visitor_id: window.ShopifyBotConfig.visitor_id,
+        sender: sender,
+        content: content,
+        productId: window.ShopifyBotConfig.product ? window.ShopifyBotConfig.product.id : null,
+        product_title: window.ShopifyBotConfig.product ? window.ShopifyBotConfig.product.title : null,
+        variant_id: window.ShopifyBotConfig.product ? window.ShopifyBotConfig.product.variantId : null,
+        metadata: {
+          round: window.ShopifyBotConfig.currentRound,
+          offer_value: window.ShopifyBotConfig.currentPrice,
+          ...(metadata || {})
+        }
+      };
+
+      fetch("/apps/negotiator/chat-logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(logPayload)
+      }).catch(err => console.warn("Negotiator Prime: Failed to log interaction", err));
+    }
+
+    function setState(newState) {
+      if (currentState === newState || currentState === 'disabled') return;
+      
+      // Log opening event
+      if (newState === 'open' && (currentState === 'teaser' || currentState === 'collapsed')) {
+        // Log welcome message if it's the first time opening
+        const welcomeLogged = sessionStorage.getItem('np_welcome_logged_' + window.ShopifyBotConfig.chatId);
+        if (!welcomeLogged) {
+          const welcomeText = document.getElementById('np-welcome-msg')?.innerText;
+          if (welcomeText) logInteraction('bot', welcomeText, { event: 'welcome' });
+          sessionStorage.setItem('np_welcome_logged_' + window.ShopifyBotConfig.chatId, 'true');
+        }
+      }
+
+      currentState = newState;
+      
+      collapsedIcon.classList.remove('np-show', 'np-hide');
+      teaser.classList.remove('np-show', 'np-hide');
+      panel.classList.remove('np-show', 'np-hide');
+
+      switch(newState) {
+        case 'collapsed':
+          collapsedIcon.classList.add('np-show');
+          teaser.classList.add('np-hide');
+          panel.classList.add('np-hide');
+          break;
+        case 'teaser':
+          collapsedIcon.classList.add('np-hide');
+          teaser.classList.add('np-show');
+          panel.classList.add('np-hide');
+          break;
+        case 'open':
+          collapsedIcon.classList.add('np-hide');
+          teaser.classList.add('np-hide');
+          panel.classList.add('np-show');
+          // Foca no input ao abrir
+          setTimeout(function() { chatInput.focus(); }, 400);
+          break;
+      }
+    }
+
+    // NOTE: The teaser is shown by applyDynamicSettings() after settings load.
+    // A fallback is already in the fetch .catch() handler above.
+
+    // Chat Functions
+    function escapeHtml(value) {
+      return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function appendMessage(text, sender) {
+      var msgDiv = document.createElement('div');
+      msgDiv.className = 'np-message ' + sender;
+      
+      if (sender === 'bot') {
+        // Escape upstream content before applying the two supported formatting rules.
+        var processedText = escapeHtml(text);
+        var boldRegex = /\*\*(.*?)\*\*/g;
+        processedText = processedText.replace(boldRegex, '<strong>$1</strong>');
+
+        var urlRegex = /(https?:\/\/[^\s]+)/g;
+        processedText = processedText.replace(urlRegex, function(url) {
+          return '<a href="' + url + '" target="_blank" rel="noopener noreferrer">' + url + '</a>';
+        });
+
+        processedText = processedText.replace(/\n/g, '<br>');
+        msgDiv.innerHTML = processedText;
+      } else {
+        msgDiv.textContent = text;
+      }
+      
+      chatBody.appendChild(msgDiv);
+      chatBody.scrollTop = chatBody.scrollHeight;
+    }
+
+    function showTyping() {
+      var typingDiv = document.createElement('div');
+      typingDiv.className = 'np-typing-bubble';
+      typingDiv.id = 'np-typing-indicator';
+      typingDiv.innerHTML = '<div class="np-dot"></div><div class="np-dot"></div><div class="np-dot"></div>';
+      chatBody.appendChild(typingDiv);
+      chatBody.scrollTop = chatBody.scrollHeight;
+    }
+
+    function removeTyping() {
+      var indicator = document.getElementById('np-typing-indicator');
+      if (indicator) {
+        indicator.parentNode.removeChild(indicator);
+      }
+    }
+
+    function handleSend() {
+      var message = chatInput.value.trim();
+      if (!message || isSending) return;
+
+      appendMessage(message, 'user');
+      chatInput.value = '';
+      isSending = true;
+      showTyping();
+
+      // Log User Message to Supabase
+      logInteraction('user', message);
+
+      // Prepare reduced payload with context
+      var payload = {
+        message: message,
+        chatId: window.ShopifyBotConfig.chatId,
+        visitor_id: window.ShopifyBotConfig.visitor_id,
+        productId: window.ShopifyBotConfig.product ? window.ShopifyBotConfig.product.id : null,
+        variantId: window.ShopifyBotConfig.product ? window.ShopifyBotConfig.product.variantId : null,
+        productPrice: window.ShopifyBotConfig.product ? window.ShopifyBotConfig.product.price : null,
+        emailCaptureRound: window.ShopifyBotConfig.emailCaptureRound || "round_1",
+        termsLink: window.ShopifyBotConfig.termsLink || "",
+        currentRound: window.ShopifyBotConfig.currentRound,
+        currentPrice: window.ShopifyBotConfig.currentPrice
+      };
+
+      fetch(window.ShopifyBotConfig.botUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      })
+      .then(function(response) {
+        if (!response.ok) {
+          return response.text().then(function(errText) {
+            throw new Error('Erro na rede ' + response.status + ': ' + (errText || response.statusText));
+          });
+        }
+        
+        var contentType = response.headers.get("content-type");
+        if (contentType && contentType.indexOf("application/json") !== -1) {
+          return response.json();
+        } else {
+          return response.text();
+        }
+      })
+      .then(function(data) {
+        removeTyping();
+        isSending = false;
+        
+        var respostaBot = "Ok, we received your message but the response format was unexpected.";
+        var roundBot = null;
+        var offerValueBot = null;
+        
+        if (!data || (typeof data === 'string' && data.trim() === "")) {
+          respostaBot = "Oops! We received an empty response from the server. Please check your automation settings.";
+        } else {
+          try {
+            // Se o N8N mandou a resposta como uma String de JSON inteira, precisamos decodificar isso primeiro.
+            if (typeof data === 'string') {
+               // Tenta converter a string pura em JSON
+               try {
+                  data = JSON.parse(data);
+               } catch(ex) {
+                  // ignorar se não der certo para cair no fallback string lá em baixo.
+               }
+            }
+
+            // Case 1: N8N Array [ { "output": "..." } ]
+            if (Array.isArray(data) && data.length > 0) {
+              var firstItem = data[0];
+              if (firstItem.output) {
+                var outputData = firstItem.output;
+                // Output might be a JSON string or an already parsed object
+                var outputObj = typeof outputData === 'string' ? JSON.parse(outputData) : outputData;
+                if (outputObj && outputObj.message) {
+                  respostaBot = outputObj.message;
+                  roundBot = outputObj.round;
+                  offerValueBot = outputObj.offer_value;
+                } else if (typeof outputData === 'string') {
+                  respostaBot = outputData;
+                }
+              } else if (firstItem.message) {
+                respostaBot = firstItem.message;
+                roundBot = firstItem.round;
+                offerValueBot = firstItem.offer_value;
+              } else if (firstItem.reply) {
+                respostaBot = firstItem.reply;
+                roundBot = firstItem.round;
+                offerValueBot = firstItem.offer_value;
+              }
+            } 
+            // Case 2: Simple Object { "reply": "..." } or { "message": "..." }
+            else if (typeof data === 'object') {
+              respostaBot = data.reply || data.message || data.output || respostaBot;
+              roundBot = data.round;
+              offerValueBot = data.offer_value;
+            }
+            // Case 3: Raw String fallback
+            else if (typeof data === 'string') {
+              respostaBot = data;
+            }
+          } catch(e) {
+            console.error("Negotiator Prime: Parsing error", e);
+            respostaBot = "Error processing server response: " + e.message;
+          }
+        }
+
+        // Update global state if returned from bot
+        if (roundBot !== null && roundBot !== undefined) window.ShopifyBotConfig.currentRound = Number(roundBot);
+        if (offerValueBot !== null && offerValueBot !== undefined) window.ShopifyBotConfig.currentPrice = Number(offerValueBot);
+
+        appendMessage(respostaBot, 'bot');
+        
+        // Log Bot Message to Supabase
+        var metadata = {};
+        if (roundBot !== undefined && roundBot !== null) metadata.round = Number(roundBot);
+        if (offerValueBot !== undefined && offerValueBot !== null) metadata.offer_value = Number(offerValueBot);
+        
+        logInteraction('bot', respostaBot, Object.keys(metadata).length > 0 ? metadata : null);
+      })
+      .catch(function(error) {
+        removeTyping();
+        isSending = false;
+        console.error("Negotiator Prime: Request failed", error);
+        appendMessage("Connection error: " + error.message, 'error');
+      });
+    }
+
+    // Event Listeners (using onclick to bypass sandbox blocks)
+    if (teaser) teaser.onclick = function() { setState('open'); };
+    if (teaserCloseBtn) {
+      teaserCloseBtn.onclick = function(e) {
+        if(e) e.stopPropagation(); 
+        setState('collapsed');
+      };
+    }
+    if (collapsedIcon) collapsedIcon.onclick = function() { setState('open'); };
+    if (closeBtn) closeBtn.onclick = function() { setState('collapsed'); };
+    
+    // Chat Event Listeners
+    if (sendBtn) {
+      sendBtn.onclick = function() {
+        handleSend();
+      };
+    }
+    
+    if (chatInput) {
+      chatInput.onkeypress = function(e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          handleSend();
+        }
+      };
+    }
+  })();
+</script>
+
+{% schema %}
+{
+  "name": "Negotiator Prime",
+  "target": "body",
+  "settings": [
+    { "type": "color", "id": "main_color", "label": "Cor Primária (Fallback)", "default": "#1B2A4A" },
+    { "type": "color", "id": "accent_color", "label": "Cor de Destaque (Fallback)", "default": "#C9A84C" }
+  ]
+}
+{% endschema %}
